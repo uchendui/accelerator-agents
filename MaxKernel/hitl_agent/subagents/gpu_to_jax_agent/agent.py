@@ -67,7 +67,7 @@ try:
         command="npx",
         args=[
           "-y",
-          "@modelcontextprotocol/server-filesystem@0.5.1",
+          "@modelcontextprotocol/server-filesystem@2026.8.31",
           os.path.abspath(WORKDIR),
         ],
         env={**os.environ, "MCP_LOG_LEVEL": "error"},  # Suppress info messages
