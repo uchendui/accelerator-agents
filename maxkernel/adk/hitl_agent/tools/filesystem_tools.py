@@ -15,7 +15,7 @@ filesystem_tool_r = MCPToolset(
       command="npx",
       args=[
         "-y",  # Argument for npx to auto-confirm install
-        "@modelcontextprotocol/server-filesystem@0.5.1",
+        "@modelcontextprotocol/server-filesystem@2026.8.31",
         os.path.abspath(WORKDIR),
       ],
     ),
@@ -31,7 +31,7 @@ filesystem_tool_rw = MCPToolset(
       command="npx",
       args=[
         "-y",  # Argument for npx to auto-confirm install
-        "@modelcontextprotocol/server-filesystem@0.5.1",
+        "@modelcontextprotocol/server-filesystem@2026.8.31",
         os.path.abspath(WORKDIR),
       ],
     ),
