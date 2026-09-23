@@ -37,6 +37,10 @@ model_config = types.GenerateContentConfig(
   temperature=TEMPERATURE,
   top_p=TOP_P,
   top_k=TOP_K,
+  # Agents without a planner (PrepareBaseKernelAgent, KernelCompilationSummaryAgent,
+  # ValidationSummaryAgent) would otherwise get no thought text back from Gemini; a planner's
+  # own thinking_config takes precedence for the agents that set one.
+  thinking_config=types.ThinkingConfig(include_thoughts=INCLUDE_THOUGHTS),
 )
 
 
