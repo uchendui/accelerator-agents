@@ -77,9 +77,17 @@ class AutonomousPipelineAgent(BaseAgent):
     yield self._initialize_state(ctx)
 
     try:
-      logging.info(f"[{self.name}] Running PrepareBaseKernelAgent (once)...")
-      async for event in self.prepare_base_kernel_agent.run_async(ctx):
-        yield event
+      base_kernel_path = ctx.session.state["base_kernel_path"]
+      if os.path.exists(base_kernel_path):
+        # The search worker already copied reference.py here; letting the model rewrite it
+        # once invented a different kernel, so the copy is used as is.
+        logging.info(
+          f"[{self.name}] {base_kernel_path} exists, skipping PrepareBaseKernelAgent"
+        )
+      else:
+        logging.info(f"[{self.name}] Running PrepareBaseKernelAgent (once)...")
+        async for event in self.prepare_base_kernel_agent.run_async(ctx):
+          yield event
 
       logging.info(
         f"[{self.name}] Running ValidatedTestGenerationAgent (once)..."
