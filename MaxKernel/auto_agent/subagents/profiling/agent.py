@@ -36,7 +36,7 @@ def create_generate_profiling_script_agent(
     name="GenerateProfilingScriptAgent",
     model=model_name,
     generate_content_config=model_config,
-    planner=get_thinking_planner("medium"),
+    planner=get_thinking_planner("high"),
     instruction=gen_profiling_script.PROMPT,
     description="Generates a profiling script to identify performance bottlenecks in the kernel code and writes it to a file.",
     tools=[filesystem_tool_r, write_profiling_script_tool],

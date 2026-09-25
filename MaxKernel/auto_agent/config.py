@@ -38,9 +38,10 @@ model_config = types.GenerateContentConfig(
   top_p=TOP_P,
   top_k=TOP_K,
   # Agents without a planner (PrepareBaseKernelAgent, KernelCompilationSummaryAgent,
-  # ValidationSummaryAgent) would otherwise get no thought text back from Gemini; a planner's
-  # own thinking_config takes precedence for the agents that set one.
-  thinking_config=types.ThinkingConfig(include_thoughts=INCLUDE_THOUGHTS),
+  # ValidationSummaryAgent) would otherwise get no thought text back from Gemini and would run
+  # at the model's default thinking level; every agent thinks at high. A planner's own
+  # thinking_config takes precedence for the agents that set one.
+  thinking_config=types.ThinkingConfig(include_thoughts=INCLUDE_THOUGHTS, thinking_level="high"),
 )
 
 
