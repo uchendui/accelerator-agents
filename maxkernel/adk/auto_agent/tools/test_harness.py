@@ -23,7 +23,7 @@ except ImportError:
 
 {input_gen_code}
 
-def benchmark(func, args, static_argnums, num_runs=20, num_warmups=5):
+def benchmark(func, args, static_argnums, num_runs=10, num_warmups=5, num_windows=5):
     dynamic_args = tuple(arg for i, arg in enumerate(args) if i not in static_argnums)
 
     def benchmark_func(*f_args):
@@ -70,12 +70,16 @@ def benchmark(func, args, static_argnums, num_runs=20, num_warmups=5):
         res = compiled_func(*dynamic_args)
     jax.block_until_ready(res)
 
-    start = time.perf_counter()
-    for _ in range(num_runs):
-        res = compiled_func(*dynamic_args)
-    jax.block_until_ready(res)
-    end = time.perf_counter()
-    return (end - start) / num_runs
+    # Median over several timed windows: a host stall (seen as ~0.5 s pauses on a busy
+    # multi-chip host) lands in one window and would otherwise set the whole mean.
+    window_times = []
+    for _ in range(num_windows):
+        start = time.perf_counter()
+        for _ in range(num_runs):
+            res = compiled_func(*dynamic_args)
+        jax.block_until_ready(res)
+        window_times.append((time.perf_counter() - start) / num_runs)
+    return sorted(window_times)[num_windows // 2]
 
 def main():
     try:
