@@ -2,7 +2,6 @@
 
 TEST_TEMPLATE = """
 import math
-import time
 import json
 import jax
 import jax.numpy as jnp
@@ -32,6 +31,7 @@ def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
     import gzip
     import json
     import shutil
+    import statistics
     import tempfile
 
     dynamic_args = tuple(arg for i, arg in enumerate(args) if i not in static_argnums)
@@ -64,13 +64,15 @@ def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
 
     events = data.get("traceEvents", data) if isinstance(data, dict) else data
     # One device event per run, named after the jitted function: jit_benchmark_func(<module id>).
-    times = sorted(e["dur"] / 1e6 for e in events
-                   if isinstance(e, dict) and e.get("dur", 0) > 0
-                   and e.get("name", "").startswith("jit_benchmark_func("))
+    # The "(" keeps out same-named host and non-module events (JAXBench's filter checks "(" too),
+    # and the count check turns a missing device track or a second event per run into an error.
+    times = [e["dur"] / 1e6 for e in events
+             if isinstance(e, dict) and e.get("dur", 0) > 0
+             and e.get("name", "").startswith("jit_benchmark_func(")]
     if len(times) != num_iters:
         raise RuntimeError("expected " + str(num_iters) + " jit_benchmark_func device events in the "
                            "profiler trace, found " + str(len(times)))
-    return (times[(num_iters - 1) // 2] + times[num_iters // 2]) / 2  # np.median, as JAXBench
+    return statistics.median(times)  # np.median, as JAXBench
 
 def main():
     try:
