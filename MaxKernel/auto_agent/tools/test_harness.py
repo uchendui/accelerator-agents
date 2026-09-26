@@ -23,7 +23,17 @@ except ImportError:
 
 {input_gen_code}
 
-def benchmark(func, args, static_argnums, num_runs=10, num_warmups=5, num_windows=5):
+def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
+    # JAXBench's timer (JAXBench/harness/profiler.py benchmark_fn): the device time of each run
+    # of the jitted program, read from a jax.profiler trace, median over num_iters runs. Host
+    # stalls (~0.5 s pauses were seen on a busy v6e-8 host) are not device time. Unlike JAXBench,
+    # a trace without one device event per run raises instead of falling back to wall clock.
+    import glob
+    import gzip
+    import json
+    import shutil
+    import tempfile
+
     dynamic_args = tuple(arg for i, arg in enumerate(args) if i not in static_argnums)
 
     def benchmark_func(*f_args):
@@ -33,53 +43,34 @@ def benchmark(func, args, static_argnums, num_runs=10, num_warmups=5, num_window
             if i not in static_argnums:
                 all_args[i] = f_args[dyn_idx]
                 dyn_idx += 1
-        res = func(*all_args)
-        if isinstance(res, tuple):
-            return tuple(jax.block_until_ready(r) for r in res)
-        else:
-            return jax.block_until_ready(res)
+        return func(*all_args)
 
-    try:
-        from jax.experimental import layout as jax_layout
-        in_shardings = jax_layout.Format(jax_layout.Layout.AUTO)
-        out_shardings = jax_layout.Format(jax_layout.Layout.AUTO)
-        compiled_func = jax.jit(
-            benchmark_func,
-            static_argnums=static_argnums,
-            in_shardings=in_shardings,
-            out_shardings=out_shardings
-        ).lower(*args).compile()
-
-        if hasattr(compiled_func, 'input_formats'):
-            arg_formats, _ = compiled_func.input_formats
-            
-            @jax.jit
-            def enforce_layout(*xs):
-                return xs
-                
-            enforce_layout_compiled = jax.jit(
-                enforce_layout,
-                out_shardings=arg_formats
-            ).lower(*dynamic_args).compile()
-            
-            dynamic_args = enforce_layout_compiled(*dynamic_args)
-    except Exception as e:
-        compiled_func = jax.jit(benchmark_func, static_argnums=static_argnums).lower(*args).compile()
-
+    compiled_func = jax.jit(benchmark_func, static_argnums=static_argnums).lower(*args).compile()
     for _ in range(num_warmups):
-        res = compiled_func(*dynamic_args)
-    jax.block_until_ready(res)
+        jax.block_until_ready(compiled_func(*dynamic_args))
 
-    # Median over several timed windows: a host stall (seen as ~0.5 s pauses on a busy
-    # multi-chip host) lands in one window and would otherwise set the whole mean.
-    window_times = []
-    for _ in range(num_windows):
-        start = time.perf_counter()
-        for _ in range(num_runs):
-            res = compiled_func(*dynamic_args)
-        jax.block_until_ready(res)
-        window_times.append((time.perf_counter() - start) / num_runs)
-    return sorted(window_times)[num_windows // 2]
+    trace_dir = tempfile.mkdtemp(prefix="harness_trace_")
+    try:
+        with jax.profiler.trace(trace_dir, create_perfetto_link=False, create_perfetto_trace=True):
+            for _ in range(num_iters):
+                jax.block_until_ready(compiled_func(*dynamic_args))
+        traces = glob.glob(trace_dir + "/**/perfetto_trace.json.gz", recursive=True)
+        if len(traces) != 1:
+            raise RuntimeError("expected one perfetto trace under " + trace_dir + ", found " + str(len(traces)))
+        with gzip.open(traces[0], "rt") as f:
+            data = json.load(f)
+    finally:
+        shutil.rmtree(trace_dir, ignore_errors=True)
+
+    events = data.get("traceEvents", data) if isinstance(data, dict) else data
+    # One device event per run, named after the jitted function: jit_benchmark_func(<module id>).
+    times = sorted(e["dur"] / 1e6 for e in events
+                   if isinstance(e, dict) and e.get("dur", 0) > 0
+                   and e.get("name", "").startswith("jit_benchmark_func("))
+    if len(times) != num_iters:
+        raise RuntimeError("expected " + str(num_iters) + " jit_benchmark_func device events in the "
+                           "profiler trace, found " + str(len(times)))
+    return (times[(num_iters - 1) // 2] + times[num_iters // 2]) / 2  # np.median, as JAXBench
 
 def main():
     try:
