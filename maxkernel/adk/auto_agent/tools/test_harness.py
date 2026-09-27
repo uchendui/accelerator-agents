@@ -41,6 +41,8 @@ def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
     import tempfile
     import time
 
+    # base_mod is the template module global bound at import (None when base_kernel.py is missing,
+    # which main() rejects before any benchmark call), so no None guard is needed here.
     timer = getattr(base_mod, "HARNESS_TIMER", "device")
     if timer not in ("device", "wallclock"):
         raise ValueError("base_kernel.HARNESS_TIMER must be 'device' or 'wallclock', got " + repr(timer))
