@@ -26,13 +26,24 @@ def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
     # JAXBench's timer (JAXBench/harness/profiler.py benchmark_fn): the device time of each run
     # of the jitted program, read from a jax.profiler trace, median over num_iters runs. Host
     # stalls (~0.5 s pauses were seen on a busy v6e-8 host) are not device time. Unlike JAXBench,
-    # a trace without one device event per run raises instead of falling back to wall clock.
+    # a trace without one device event per run raises instead of falling back to wall clock, and
+    # the trace is read from the raw xplane.pb with jax.profiler.ProfileData, not from a perfetto
+    # JSON: a reference made of many small ops (kda) produced a ~2.8 GB JSON that jax's own
+    # stop_trace failed to parse.
+    # A reference opts into a wall-clock timer with HARNESS_TIMER = "wallclock" in base_kernel.py
+    # (the task's reference, which the agent does not write): kda's reference runs so many small
+    # ops that the profiler keeps only 2 of 50 runs, with wrong durations, and one trace per run
+    # takes ~42 s to collect. The wall-clock timer times each run separately and takes the median,
+    # so one host stall moves one sample, not the result.
     import glob
-    import gzip
-    import json
     import shutil
     import statistics
     import tempfile
+    import time
+
+    timer = getattr(base_mod, "HARNESS_TIMER", "device")
+    if timer not in ("device", "wallclock"):
+        raise ValueError("base_kernel.HARNESS_TIMER must be 'device' or 'wallclock', got " + repr(timer))
 
     dynamic_args = tuple(arg for i, arg in enumerate(args) if i not in static_argnums)
 
@@ -49,26 +60,34 @@ def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
     for _ in range(num_warmups):
         jax.block_until_ready(compiled_func(*dynamic_args))
 
+    if timer == "wallclock":
+        times = []
+        for _ in range(num_iters):
+            start = time.perf_counter()
+            jax.block_until_ready(compiled_func(*dynamic_args))
+            times.append(time.perf_counter() - start)
+        return statistics.median(times)
+
     trace_dir = tempfile.mkdtemp(prefix="harness_trace_")
     try:
-        with jax.profiler.trace(trace_dir, create_perfetto_link=False, create_perfetto_trace=True):
+        with jax.profiler.trace(trace_dir):
             for _ in range(num_iters):
                 jax.block_until_ready(compiled_func(*dynamic_args))
-        traces = glob.glob(trace_dir + "/**/perfetto_trace.json.gz", recursive=True)
-        if len(traces) != 1:
-            raise RuntimeError("expected one perfetto trace under " + trace_dir + ", found " + str(len(traces)))
-        with gzip.open(traces[0], "rt") as f:
-            data = json.load(f)
+        xplanes = glob.glob(trace_dir + "/**/*.xplane.pb", recursive=True)
+        if len(xplanes) != 1:
+            raise RuntimeError("expected one xplane.pb under " + trace_dir + ", found " + str(len(xplanes)))
+        profile = jax.profiler.ProfileData.from_file(xplanes[0])
+        # One device event per run on a device plane's "XLA Modules" line, named after the jitted
+        # function: jit_benchmark_func(<module id>). The "(" matches JAXBench's filter, and the
+        # count check turns a missing device plane or a second event per run into an error.
+        times = [event.duration_ns / 1e9
+                 for plane in profile.planes if plane.name.startswith("/device:")
+                 for line in plane.lines if line.name == "XLA Modules"
+                 for event in line.events
+                 if event.duration_ns > 0 and event.name.startswith("jit_benchmark_func(")]
     finally:
         shutil.rmtree(trace_dir, ignore_errors=True)
 
-    events = data.get("traceEvents", data) if isinstance(data, dict) else data
-    # One device event per run, named after the jitted function: jit_benchmark_func(<module id>).
-    # The "(" keeps out same-named host and non-module events (JAXBench's filter checks "(" too),
-    # and the count check turns a missing device track or a second event per run into an error.
-    times = [e["dur"] / 1e6 for e in events
-             if isinstance(e, dict) and e.get("dur", 0) > 0
-             and e.get("name", "").startswith("jit_benchmark_func(")]
     if len(times) != num_iters:
         raise RuntimeError("expected " + str(num_iters) + " jit_benchmark_func device events in the "
                            "profiler trace, found " + str(len(times)))
