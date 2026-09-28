@@ -117,23 +117,14 @@ def print_eval_result(result: EvaluationResult):
       "Optimized times:       ",
       f"{[f'{t:.3f}' for t in result.optimized_time_ms]} ms",
     )
-  wall_time_speedup = result.speedup
-  if wall_time_speedup:
+  speedup = result.speedup
+  if speedup:
     print(
-      "Wall time speedups:    ",
-      f"{[f'{s:.2f}x' if s is not None else 'N/A' for s in wall_time_speedup]}",
+      "Speedups (device-trace median, 50 runs):",
+      f"{[f'{s:.2f}x' if s is not None else 'N/A' for s in speedup]}",
     )
   else:
-    print("Wall time speedups:    N/A")
-
-  xprof_speedup = result.speed_up_xprof
-  if xprof_speedup:
-    print(
-      "XProf speedups:        ",
-      f"{[f'{s:.2f}x' if s is not None else 'N/A' for s in xprof_speedup]}",
-    )
-  else:
-    print("XProf speedups:        N/A")
+    print("Speedups (device-trace median, 50 runs): N/A")
 
   if result.logs:
     print("Harness Logs:")
@@ -146,7 +137,6 @@ def summarize_results(
   results: list,
   speedup_threshold: float,
   output_dir: Optional[str] = None,
-  use_xprof_speedup: bool = True,
 ) -> None:
   """
   Calculates and prints summary statistics for a list of evaluation results.
@@ -155,7 +145,6 @@ def summarize_results(
       results: A list of dictionaries, where each dictionary is an evaluation result.
       speedup_threshold: The minimum speedup factor to consider an improvement.
       output_dir: Optional directory path to save the summary report and stats.
-      use_xprof_speedup: Whether to use XProf speedup for the summary.
   """
   total_attempted = len(results)
   if not total_attempted:
@@ -179,16 +168,7 @@ def summarize_results(
   # Speedup calculations should only be on tasks that are numerically correct.
   speedups = []
   for r in correct_tasks:
-    s_list = None
-    if use_xprof_speedup:
-      if r.get("speed_up_xprof"):
-        s_list = r["speed_up_xprof"]
-      elif r.get("speedup"):
-        s_list = r["speedup"]
-    else:
-      if r.get("speedup"):
-        s_list = r["speedup"]
-
+    s_list = r.get("speedup")
     if s_list:
       # Aggregate speedups for the task using geometric mean
       task_speedups = [s for s in s_list if s is not None]
@@ -285,9 +265,7 @@ def summarize_results(
     logger.info(f"Saved evaluation summary and stats to {output_dir}")
 
 
-def visualize_speed_up(
-  results: list, output_dir: str, use_xprof_speedup: bool = True
-) -> None:
+def visualize_speed_up(results: list, output_dir: str) -> None:
   """
   Visualizes the evaluation results.
 
@@ -296,7 +274,6 @@ def visualize_speed_up(
       output_dir: Directory path to save the output PNG files.
                   Will generate speedup_distribution.png and
                   speedup_barplot.png in this directory.
-      use_xprof_speedup: Whether to use XProf speedup for the visualization.
   """
   os.makedirs(output_dir, exist_ok=True)
 
@@ -322,18 +299,9 @@ def visualize_speed_up(
       and r.get("numerically_correct")
       and all(r.get("numerically_correct"))
     )
-    s_list = None
     s = None
     if is_valid:
-      if use_xprof_speedup:
-        if r.get("speed_up_xprof"):
-          s_list = r["speed_up_xprof"]
-        elif r.get("speedup"):
-          s_list = r["speedup"]
-      else:
-        if r.get("speedup"):
-          s_list = r["speedup"]
-
+      s_list = r.get("speedup")
       if s_list:
         task_speedups = [v for v in s_list if v is not None]
         if task_speedups:
