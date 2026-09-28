@@ -9,7 +9,6 @@ import importlib
 import importlib.util
 import os
 import traceback
-import xprof_utils
 
 
 def load_module_from_path(module_name, file_path):
@@ -21,81 +20,64 @@ def load_module_from_path(module_name, file_path):
   return module
 
 
-def benchmark(func, args, static_argnums, trace_dir=None, num_runs=20, num_warmups=5):
-  # 1. Identify dynamic args for the compiled function call.
-  dynamic_args = tuple(
-      arg for i, arg in enumerate(args) if i not in static_argnums)
+def benchmark(func, args, static_argnums, timer, num_iters=50, num_warmups=5):
+  # The search harness's timer (auto_agent/tools/test_harness.py benchmark), so zero-shot and
+  # search speedups are measured the same way: 5 warmups, then the device time of each of 50 runs
+  # of the jitted program read from a jax.profiler trace, median. A trace without exactly one
+  # device event per run raises. timer is the reference's HARNESS_TIMER: "wallclock" times each
+  # run with perf_counter instead (kda's many-small-op reference defeats the profiler).
+  import glob
+  import shutil
+  import statistics
+  import tempfile
+
+  if timer not in ("device", "wallclock"):
+    raise ValueError("reference.HARNESS_TIMER must be 'device' or 'wallclock', got " + repr(timer))
+
+  dynamic_args = tuple(arg for i, arg in enumerate(args) if i not in static_argnums)
 
   def benchmark_func(*f_args):
-    with jax.named_scope('benchmark_func'):
-      res = func(*f_args)
-      return jax.block_until_ready(res)
+    all_args = list(args)
+    dyn_idx = 0
+    for i in range(len(args)):
+      if i not in static_argnums:
+        all_args[i] = f_args[dyn_idx]
+        dyn_idx += 1
+    return func(*all_args)
 
-  # 2. Compile the function to an executable to eliminate dispatch overhead.
-  # Attempt to use proper sharding if available
-  try:
-    from jax.experimental import layout as jax_layout
-    in_shardings = jax_layout.Format(jax_layout.Layout.AUTO)
-    out_shardings = jax_layout.Format(jax_layout.Layout.AUTO)
-    compiled_func = jax.jit(
-        benchmark_func,
-        static_argnums=static_argnums,
-        in_shardings=in_shardings,
-        out_shardings=out_shardings
-    ).lower(*args).compile()
-
-    # Layout Alignment Trick
-    if hasattr(compiled_func, 'input_formats'):
-      arg_formats, _ = compiled_func.input_formats
-      
-      @jax.jit
-      def enforce_layout(*xs):
-        return xs
-        
-      # Compile helper with desired output formats
-      enforce_layout_compiled = jax.jit(
-        enforce_layout,
-        out_shardings=arg_formats
-      ).lower(*dynamic_args).compile()
-      
-      # Apply alignment
-      dynamic_args = enforce_layout_compiled(*dynamic_args)
-  except Exception as e:
-    compiled_func = jax.jit(benchmark_func, static_argnums=static_argnums).lower(*args).compile()
-
-  # 3. Warm up
+  compiled_func = jax.jit(benchmark_func, static_argnums=static_argnums).lower(*args).compile()
   for _ in range(num_warmups):
-    res = compiled_func(*dynamic_args)
-  jax.block_until_ready(res)
+    jax.block_until_ready(compiled_func(*dynamic_args))
 
-  # 4. Benchmark
-  def run_wall_time():
-    start = time.perf_counter()
-    for _ in range(num_runs):
-      res = compiled_func(*dynamic_args)
-    jax.block_until_ready(res)
-    end = time.perf_counter()
-    return (end - start) / num_runs
-  
-  def run_xprof():
+  if timer == "wallclock":
+    times = []
+    for _ in range(num_iters):
+      start = time.perf_counter()
+      jax.block_until_ready(compiled_func(*dynamic_args))
+      times.append(time.perf_counter() - start)
+    return statistics.median(times)
+
+  trace_dir = tempfile.mkdtemp(prefix="harness_trace_")
+  try:
     with jax.profiler.trace(trace_dir):
-      for _ in range(num_runs):
-        res = compiled_func(*dynamic_args)
-        jax.block_until_ready(res)
-        # Inject dummy op to separate trace events
-        jnp.sum(jax.random.normal(jax.random.key(0), (128, 128), jnp.float32)).block_until_ready()
+      for _ in range(num_iters):
+        jax.block_until_ready(compiled_func(*dynamic_args))
+    xplanes = glob.glob(trace_dir + "/**/*.xplane.pb", recursive=True)
+    if len(xplanes) != 1:
+      raise RuntimeError("expected one xplane.pb under " + trace_dir + ", found " + str(len(xplanes)))
+    profile = jax.profiler.ProfileData.from_file(xplanes[0])
+    times = [event.duration_ns / 1e9
+             for plane in profile.planes if plane.name.startswith("/device:")
+             for line in plane.lines if line.name == "XLA Modules"
+             for event in line.events
+             if event.duration_ns > 0 and event.name.startswith("jit_benchmark_func(")]
+  finally:
+    shutil.rmtree(trace_dir, ignore_errors=True)
 
-  avg_wall_time = run_wall_time()
-
-  xprof_time = 0.0
-  if trace_dir:
-    run_xprof()
-    try:
-      xprof_time = xprof_utils.extract_xprof_time(trace_dir, 'benchmark_func')
-    except Exception as e:
-      raise RuntimeError(f"Failed to extract xprof time: {e}")
-
-  return avg_wall_time, xprof_time
+  if len(times) != num_iters:
+    raise RuntimeError("expected " + str(num_iters) + " jit_benchmark_func device events in the "
+                       "profiler trace, found " + str(len(times)))
+  return statistics.median(times)
 
 
 def main():
@@ -142,9 +124,11 @@ def main():
     # Import the uploaded scripts as modules
     base_mod = load_module_from_path("reference", "reference.py")
     optimized_mod = load_module_from_path("optimized", "optimized.py")
+    timer = getattr(base_mod, "HARNESS_TIMER", "device")
 
     harness_logs = []
 
+    # reference_time_ms / optimized_time_ms hold the search harness timer's median (see benchmark).
     result = {
         "compiled_successfully": [],
         "numerically_correct": [],
@@ -152,8 +136,6 @@ def main():
         "max_rel_diff": [],
         "reference_time_ms": [],
         "optimized_time_ms": [],
-        "xprof_reference_time_ms": [],
-        "xprof_optimized_time_ms": [],
         "error_trace": [],
     }
 
@@ -211,8 +193,6 @@ def main():
         result["max_rel_diff"].append(None)
         result["reference_time_ms"].append(0.0)
         result["optimized_time_ms"].append(0.0)
-        result["xprof_reference_time_ms"].append(0.0)
-        result["xprof_optimized_time_ms"].append(0.0)
         continue
 
       # Dirty all HBM memory leaves with NaN / Sentinel values to prevent cache reuse
@@ -245,8 +225,6 @@ def main():
         result["max_rel_diff"].append(None)
         result["reference_time_ms"].append(0.0)
         result["optimized_time_ms"].append(0.0)
-        result["xprof_reference_time_ms"].append(0.0)
-        result["xprof_optimized_time_ms"].append(0.0)
         continue
 
       result["compiled_successfully"].append(True)
@@ -279,24 +257,18 @@ def main():
       if not is_correct:
         result["reference_time_ms"].append(0.0)
         result["optimized_time_ms"].append(0.0)
-        result["xprof_reference_time_ms"].append(0.0)
-        result["xprof_optimized_time_ms"].append(0.0)
         continue
 
       # Benchmark and collect timing results
       try:
-        time_base, xprof_time_base = benchmark(base_mod.computation, args, static_argnums, trace_dir=f"trace_base_{idx}")
-        time_optimized, xprof_time_optimized = benchmark(optimized_mod.computation, args, static_argnums, trace_dir=f"trace_opt_{idx}")
+        time_base = benchmark(base_mod.computation, args, static_argnums, timer)
+        time_optimized = benchmark(optimized_mod.computation, args, static_argnums, timer)
         result["reference_time_ms"].append(time_base * 1000)
         result["optimized_time_ms"].append(time_optimized * 1000)
-        result["xprof_reference_time_ms"].append(xprof_time_base)
-        result["xprof_optimized_time_ms"].append(xprof_time_optimized)
       except Exception as e:
         harness_logs.append(f"Benchmarking failed for input {idx}: {e}")
         result["reference_time_ms"].append(0.0)
         result["optimized_time_ms"].append(0.0)
-        result["xprof_reference_time_ms"].append(0.0)
-        result["xprof_optimized_time_ms"].append(0.0)
 
     if harness_logs:
       result["logs"] = harness_logs
