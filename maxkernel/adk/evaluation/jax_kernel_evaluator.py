@@ -139,17 +139,13 @@ class JAXKernelEvaluator:
       ref_local = os.path.join(local_base_dir, "reference.py")
       opt_local = os.path.join(local_base_dir, "optimized.py")
       result_local = os.path.join(local_base_dir, "result.json")
-      xprof_src = os.path.join(os.path.dirname(__file__), "xprof_utils.py")
-      xprof_local = os.path.join(local_base_dir, "xprof_utils.py")
 
       # Build JSON and harness
       self._build_task_json(task, task_json_local, atol=atol, rtol=rtol)
       self._build_harness_code(harness_local)
 
-      # Copy reference, optimized code and xprof_utils.py
       shutil.copy(reference_code_path, ref_local)
       shutil.copy(optimized_code_path, opt_local)
-      shutil.copy(xprof_src, xprof_local)
 
       logger.info(f"Starting local evaluation in {local_base_dir}...")
 
@@ -272,13 +268,11 @@ class JAXKernelEvaluator:
       eval_result = EvaluationResult(task_id=task.task_id)
       self._build_harness_code(harness_local)
 
-      xprof_src = os.path.join(os.path.dirname(__file__), "xprof_utils.py")
       files_to_upload = {
         "reference.py": reference_code_path,
         "optimized.py": optimized_code_path,
         "harness.py": harness_local,
         "task.json": task_json_local,
-        "xprof_utils.py": xprof_src,
       }
 
       safe_task_id = str(task.task_id).replace(" ", "_")
