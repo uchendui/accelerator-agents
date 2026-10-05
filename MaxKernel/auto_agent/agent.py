@@ -31,6 +31,7 @@ def create_root_agent(
   end_agent: Optional[str] = None,
   atol: Optional[Union[float, list[float]]] = None,
   rtol: Optional[Union[float, list[float]]] = None,
+  sort_outputs: bool = False,
 ) -> AutonomousPipelineAgent:
   agent = AutonomousPipelineAgent(
     name="AutonomousPipelineAgent",
@@ -47,6 +48,7 @@ def create_root_agent(
     end_agent=end_agent,
     atol=atol,
     rtol=rtol,
+    sort_outputs=sort_outputs,
   )
 
   from auto_agent.timing_callbacks import (

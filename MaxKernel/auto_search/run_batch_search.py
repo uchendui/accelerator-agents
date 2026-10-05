@@ -7,7 +7,7 @@ from typing import Any, Tuple
 
 import yaml
 
-from evaluation.custom_types.kernel_task import normalize_tolerance
+from evaluation.custom_types.kernel_task import normalize_sort_outputs, normalize_tolerance
 
 from auto_search.run_search import run_search, setup_logging
 
@@ -35,6 +35,7 @@ async def process_problem(
 
       atol = None
       rtol = None
+      sort_outputs = False
       kernel_task_file = os.path.join(problem_dir, "kernel_task.yaml")
       if os.path.exists(kernel_task_file):
         with open(kernel_task_file, "r") as f:
@@ -45,18 +46,21 @@ async def process_problem(
                 atol = normalize_tolerance(task_data["atol"])
               if "rtol" in task_data:
                 rtol = normalize_tolerance(task_data["rtol"])
+              sort_outputs = normalize_sort_outputs(task_data.get("sort_outputs", False))
           except Exception as e:
             logger.warning(
               f"Failed to parse kernel_task.yaml for {problem_id}: {e}"
             )
 
       problem_kwargs = dict(kwargs)
-      if atol is not None or rtol is not None:
+      if atol is not None or rtol is not None or sort_outputs:
         agent_config = dict(problem_kwargs.get("agent_config") or {})
         if atol is not None:
           agent_config["atol"] = atol
         if rtol is not None:
           agent_config["rtol"] = rtol
+        if sort_outputs:
+          agent_config["sort_outputs"] = True
         problem_kwargs["agent_config"] = agent_config
 
       optimized_file_path = os.path.join(

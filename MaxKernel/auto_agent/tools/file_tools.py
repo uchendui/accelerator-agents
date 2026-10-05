@@ -122,6 +122,7 @@ def write_test_file_tool_fn(
   tool_context: ToolContext,
   atol: float | list[float] = 1e-2,
   rtol: float | list[float] = 1e-2,
+  sort_outputs: bool = False,
 ) -> str:
   """Writes the generated input generation snippet to the test file using the rigorous harness template.
 
@@ -130,6 +131,7 @@ def write_test_file_tool_fn(
       kernel_name: The exact function name of the base kernel entry point (e.g., "computation").
       atol: Absolute tolerance for numerical correctness checks. Default 1e-2. Set lower for F32.
       rtol: Relative tolerance for numerical correctness checks. Default 1e-2. Set lower for F32.
+      sort_outputs: Sort each output leaf along its last axis before comparison.
   """
   target_path = tool_context.state.get("test_file_path")
   if not target_path:
@@ -151,13 +153,21 @@ def write_test_file_tool_fn(
   content = re.sub(r"^```(python)?\n", "", content.strip())
   content = re.sub(r"\n```$", "", content)
 
-  # Save kernel_name and tolerances to state for downstream agents
+  if not isinstance(sort_outputs, bool):
+    raise TypeError("sort_outputs must be a boolean")
+
+  # Save kernel_name and comparison settings to state for downstream agents
   tool_context.state["kernel_name"] = kernel_name
   tool_context.state["atol"] = atol
   tool_context.state["rtol"] = rtol
+  tool_context.state["sort_outputs"] = sort_outputs
 
   full_content = TEST_TEMPLATE.format(
-    input_gen_code=content, atol=atol, rtol=rtol, kernel_name=kernel_name
+    input_gen_code=content,
+    atol=atol,
+    rtol=rtol,
+    sort_outputs=sort_outputs,
+    kernel_name=kernel_name,
   )
 
   target.write_text(full_content)

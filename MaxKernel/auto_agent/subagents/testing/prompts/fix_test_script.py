@@ -73,7 +73,8 @@ Review each validation failure:
 3. **Keep all test classes and test methods** - just fix syntax/import/structure issues
 4. Focus ONLY on making the test file valid Python code with correct imports and pytest structure
 5. **Numerical Tolerance**: Each tolerance is a float, or a list with one value per output leaf in `jax.tree_util.tree_leaves` order. Pass lists unchanged. Use the specified tolerances: atol={atol?}, rtol={rtol?}. If they are not specified, default to atol=1e-3, rtol=1e-3.
-6. **Input Generation**: Ensure that if the base kernel file (`{base_kernel_path?}`) defines an input generation function (e.g. `create_inputs`), it is reused/imported and used directly.
+6. **Output Ordering**: Pass sort_outputs={sort_outputs?} unchanged. When true, sort every output leaf along its last axis before comparison.
+7. **Input Generation**: Ensure that if the base kernel file (`{base_kernel_path?}`) defines an input generation function (e.g. `create_inputs`), it is reused/imported and used directly.
 
 ### Step 4: Write the Fixed Test File
 

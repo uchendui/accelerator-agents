@@ -117,6 +117,9 @@ def main():
     input_gen_code = task_data.get("input_gen_code")
     task_atol = normalize_tolerance(task_data.get("atol", 1e-3))
     task_rtol = normalize_tolerance(task_data.get("rtol", 1e-3))
+    sort_outputs = task_data.get("sort_outputs", False)
+    if not isinstance(sort_outputs, bool):
+      raise TypeError("sort_outputs must be a boolean")
 
     if input_gen_code:
       ldict = {}
@@ -243,6 +246,9 @@ def main():
 
       out_base_flat = jax.tree_util.tree_leaves(out_base_cpu)
       out_optimized_flat = jax.tree_util.tree_leaves(out_optimized_cpu)
+      if sort_outputs:
+        out_base_flat = [jnp.sort(output, axis=-1) for output in out_base_flat]
+        out_optimized_flat = [jnp.sort(output, axis=-1) for output in out_optimized_flat]
 
       validate_output_tolerances(len(out_base_flat), curr_atol, curr_rtol)
       is_correct = True
@@ -261,7 +267,8 @@ def main():
                 f"expected {b.shape}, got {o.shape}")
 
       try:
-        is_correct = outputs_match(out_base_flat, out_optimized_flat, curr_atol, curr_rtol)
+        is_correct = outputs_match(
+            out_base_flat, out_optimized_flat, curr_atol, curr_rtol)
         for b, o in zip(out_base_flat, out_optimized_flat):
           max_abs_diff = max(max_abs_diff, float(jnp.max(jnp.abs(b - o))))
           max_rel_diff = max(max_rel_diff, float(jnp.max(jnp.abs((b - o) / b))))

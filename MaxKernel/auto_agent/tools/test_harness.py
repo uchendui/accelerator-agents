@@ -117,6 +117,7 @@ def main():
 
         task_atol = normalize_tolerance({atol!r})
         task_rtol = normalize_tolerance({rtol!r})
+        sort_outputs = {sort_outputs!r}
         if multiple_input_configs:
             for name, tolerance in (("atol", task_atol), ("rtol", task_rtol)):
                 if isinstance(tolerance, list) and len(tolerance) != len(inputs_list):
@@ -188,6 +189,9 @@ def main():
 
                     output_atol = curr_atol[i] if isinstance(curr_atol, list) else curr_atol
                     output_rtol = curr_rtol[i] if isinstance(curr_rtol, list) else curr_rtol
+                    if sort_outputs:
+                        b = jnp.sort(b, axis=-1)
+                        o = jnp.sort(o, axis=-1)
                     match = bool(jnp.allclose(b, o, atol=output_atol, rtol=output_rtol))
                     if not match:
                         is_correct = False

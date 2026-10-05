@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from evaluation.custom_types.kernel_task import normalize_tolerance
+from evaluation.custom_types.kernel_task import normalize_sort_outputs, normalize_tolerance
 
 from auto_agent.agent_client.auto_agent_client import AutoAgentClient
 
@@ -85,6 +85,7 @@ async def process_problem(
 
     atol = None
     rtol = None
+    sort_outputs = False
     kernel_task_file = os.path.join(problem_dir, "kernel_task.yaml")
     if os.path.exists(kernel_task_file):
       with open(kernel_task_file, "r") as f:
@@ -94,6 +95,7 @@ async def process_problem(
             atol = normalize_tolerance(task_data["atol"])
           if "rtol" in task_data:
             rtol = normalize_tolerance(task_data["rtol"])
+          sort_outputs = normalize_sort_outputs(task_data.get("sort_outputs", False))
         except Exception as e:
           logger.warning(
             f"Failed to parse kernel_task.yaml for {problem_id}: {e}"
@@ -117,6 +119,7 @@ async def process_problem(
         events_compaction=events_compaction,
         atol=atol,
         rtol=rtol,
+        sort_outputs=sort_outputs,
       )
 
       session_file = os.path.join(

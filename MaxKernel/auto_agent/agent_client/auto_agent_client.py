@@ -36,6 +36,7 @@ class AutoAgentClient:
     events_compaction: bool = False,
     atol: Optional[Union[float, list[float]]] = None,
     rtol: Optional[Union[float, list[float]]] = None,
+    sort_outputs: bool = False,
   ):
     self.user_id = user_id
     self.session_id = session_id
@@ -43,7 +44,8 @@ class AutoAgentClient:
     if agent is not None:
       self.agent = agent
     else:
-      self.agent = create_root_agent(atol=atol, rtol=rtol)
+      self.agent = create_root_agent(
+          atol=atol, rtol=rtol, sort_outputs=sort_outputs)
     self.session_service = InMemorySessionService()
     self.session = None
     self.app_name = app_name
