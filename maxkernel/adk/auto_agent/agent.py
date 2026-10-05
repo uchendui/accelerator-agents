@@ -4,7 +4,7 @@ This module contains the root orchestrator that coordinates all subagents
 for the human-in-the-loop kernel generation process.
 """
 
-from typing import Optional
+from typing import Optional, Union
 
 from google.adk.apps.app import App
 
@@ -29,8 +29,8 @@ def create_root_agent(
   max_iterations: int = 5,
   session_dir: Optional[str] = None,
   end_agent: Optional[str] = None,
-  atol: Optional[float] = None,
-  rtol: Optional[float] = None,
+  atol: Optional[Union[float, list[float]]] = None,
+  rtol: Optional[Union[float, list[float]]] = None,
 ) -> AutonomousPipelineAgent:
   agent = AutonomousPipelineAgent(
     name="AutonomousPipelineAgent",
