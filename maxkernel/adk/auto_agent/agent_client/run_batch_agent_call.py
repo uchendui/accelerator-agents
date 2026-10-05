@@ -85,6 +85,7 @@ async def process_problem(
 
     atol = None
     rtol = None
+    sort_before_compare = False
     kernel_task_file = os.path.join(problem_dir, "kernel_task.yaml")
     if os.path.exists(kernel_task_file):
       with open(kernel_task_file, "r") as f:
@@ -94,6 +95,7 @@ async def process_problem(
             atol = normalize_tolerance(task_data["atol"])
           if "rtol" in task_data:
             rtol = normalize_tolerance(task_data["rtol"])
+          sort_before_compare = bool(task_data.get("sort_before_compare", False))
         except Exception as e:
           logger.warning(
             f"Failed to parse kernel_task.yaml for {problem_id}: {e}"
@@ -117,6 +119,7 @@ async def process_problem(
         events_compaction=events_compaction,
         atol=atol,
         rtol=rtol,
+        sort_before_compare=sort_before_compare,
       )
 
       session_file = os.path.join(

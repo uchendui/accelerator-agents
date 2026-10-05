@@ -369,7 +369,8 @@ def main():
                 f"expected {b.shape}, got {o.shape}")
 
       try:
-        is_correct = outputs_match(out_base_flat, out_optimized_flat, curr_atol, curr_rtol)
+        is_correct = outputs_match(
+            out_base_flat, out_optimized_flat, curr_atol, curr_rtol)
         for b, o in zip(out_base_flat, out_optimized_flat):
           leaf_abs, leaf_rel = diff_metrics(b, o)
           max_abs_diff = max(max_abs_diff, leaf_abs)

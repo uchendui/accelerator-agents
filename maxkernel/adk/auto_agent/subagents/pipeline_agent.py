@@ -34,6 +34,7 @@ class AutonomousPipelineAgent(BaseAgent):
   end_agent: Optional[str] = None
   atol: Optional[Union[float, list[float]]] = None
   rtol: Optional[Union[float, list[float]]] = None
+  sort_before_compare: bool = False
 
   def __init__(
     self,
@@ -51,6 +52,7 @@ class AutonomousPipelineAgent(BaseAgent):
     end_agent: Optional[str] = None,
     atol: Optional[Union[float, list[float]]] = None,
     rtol: Optional[Union[float, list[float]]] = None,
+    sort_before_compare: bool = False,
   ):
     super().__init__(
       name=name,
@@ -67,6 +69,7 @@ class AutonomousPipelineAgent(BaseAgent):
       end_agent=end_agent,
       atol=atol,
       rtol=rtol,
+      sort_before_compare=sort_before_compare,
     )
 
   async def _run_async_impl(
@@ -538,6 +541,9 @@ class AutonomousPipelineAgent(BaseAgent):
       ctx.session.state["rtol"] = self.rtol
       logging.info(f"[{self.name}] Set rtol: {ctx.session.state['rtol']}")
 
+    if "sort_before_compare" not in ctx.session.state:
+      ctx.session.state["sort_before_compare"] = self.sort_before_compare
+
     logging.info(f"[{self.name}] Published explicit path state update Event.")
     return Event(
       author=self.name,
@@ -551,6 +557,7 @@ class AutonomousPipelineAgent(BaseAgent):
           "profiling_script_path": ctx.session.state["profiling_script_path"],
           "atol": ctx.session.state.get("atol"),
           "rtol": ctx.session.state.get("rtol"),
+          "sort_before_compare": ctx.session.state["sort_before_compare"],
           "autotune_specs_path": ctx.session.state["autotune_specs_path"],
           "autotune_results_path": ctx.session.state["autotune_results_path"],
           "xplane_pb_path": ctx.session.state["xplane_pb_path"],

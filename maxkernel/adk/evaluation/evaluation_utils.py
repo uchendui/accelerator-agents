@@ -34,6 +34,8 @@ def write_kernel_task_to_yaml(task: KernelTask, yaml_path: str) -> None:
       yaml_path: Path to the output YAML file.
   """
   task_dict = asdict(task)
+  if not task_dict["sort_before_compare"]:
+    del task_dict["sort_before_compare"]
 
   # Ensure multiline code string is formatted cleanly as a literal block
   if "input_gen_code" in task_dict and isinstance(
