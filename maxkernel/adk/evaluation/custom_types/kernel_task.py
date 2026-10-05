@@ -2,6 +2,12 @@ from dataclasses import dataclass
 from typing import List, Optional, Union
 
 
+def normalize_tolerance(value):
+  if isinstance(value, list):
+    return [float(item) for item in value]
+  return float(value)
+
+
 @dataclass
 class KernelTask:
   task_id: str

@@ -7,6 +7,8 @@ from typing import Any, Tuple
 
 import yaml
 
+from evaluation.custom_types.kernel_task import normalize_tolerance
+
 from auto_search.run_search import run_search, setup_logging
 
 logger = logging.getLogger(__name__)
@@ -40,9 +42,9 @@ async def process_problem(
             task_data = yaml.safe_load(f)
             if isinstance(task_data, dict):
               if "atol" in task_data:
-                atol = task_data["atol"]
+                atol = normalize_tolerance(task_data["atol"])
               if "rtol" in task_data:
-                rtol = task_data["rtol"]
+                rtol = normalize_tolerance(task_data["rtol"])
           except Exception as e:
             logger.warning(
               f"Failed to parse kernel_task.yaml for {problem_id}: {e}"
