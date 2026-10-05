@@ -20,6 +20,20 @@ def load_module_from_path(module_name, file_path):
   return module
 
 
+def outputs_match(expected, actual, atol, rtol):
+  if len(expected) != len(actual):
+    return False
+  for name, tolerance in (("atol", atol), ("rtol", rtol)):
+    if isinstance(tolerance, list) and len(tolerance) != len(expected):
+      raise ValueError(f"{name} list length ({len(tolerance)}) does not match output count ({len(expected)})")
+  return all(
+      b.shape == o.shape and bool(jnp.allclose(
+          b, o,
+          atol=atol[i] if isinstance(atol, list) else atol,
+          rtol=rtol[i] if isinstance(rtol, list) else rtol))
+      for i, (b, o) in enumerate(zip(expected, actual)))
+
+
 def benchmark(func, args, static_argnums, timer, num_iters=50, num_warmups=5):
   # The search harness's timer (auto_agent/tools/test_harness.py benchmark), so zero-shot and
   # search speedups are measured the same way: 5 warmups, then the device time of each of 50 runs
@@ -110,7 +124,8 @@ def main():
         raise RuntimeError(f"Error while running get_inputs(): {e}")
 
       # Check if the input is a list of tuples or a single tuple
-      if isinstance(raw_inputs, list):
+      multiple_input_configs = isinstance(raw_inputs, list)
+      if multiple_input_configs:
         inputs_list = raw_inputs
       elif isinstance(raw_inputs, tuple) and len(raw_inputs) == 2:
         inputs_list = [raw_inputs]
@@ -153,31 +168,19 @@ def main():
       args = tuple(dynamic_args) + tuple(static_args)
       static_argnums = tuple(range(len(dynamic_args), len(args)))
 
-      if isinstance(task_atol, list):
-        if idx < len(task_atol):
-          curr_atol = task_atol[idx]
-        else:
-          curr_atol = task_atol[-1]
-          harness_logs.append(
-              f"atol list length ({len(task_atol)}) is shorter than input "
-              f"count ({len(inputs_list)}). Reusing last atol ({curr_atol}) "
-              f"for input {idx}."
-          )
+      if multiple_input_configs and isinstance(task_atol, list):
+        if len(task_atol) != len(inputs_list):
+          raise ValueError(f"atol list length ({len(task_atol)}) does not match input count ({len(inputs_list)})")
+        curr_atol = task_atol[idx]
       else:
-        curr_atol = float(task_atol) if task_atol is not None else 1e-3
+        curr_atol = task_atol if task_atol is not None else 1e-3
 
-      if isinstance(task_rtol, list):
-        if idx < len(task_rtol):
-          curr_rtol = task_rtol[idx]
-        else:
-          curr_rtol = task_rtol[-1]
-          harness_logs.append(
-              f"rtol list length ({len(task_rtol)}) is shorter than input "
-              f"count ({len(inputs_list)}). Reusing last rtol ({curr_rtol}) "
-              f"for input {idx}."
-          )
+      if multiple_input_configs and isinstance(task_rtol, list):
+        if len(task_rtol) != len(inputs_list):
+          raise ValueError(f"rtol list length ({len(task_rtol)}) does not match input count ({len(inputs_list)})")
+        curr_rtol = task_rtol[idx]
       else:
-        curr_rtol = float(task_rtol) if task_rtol is not None else 1e-3
+        curr_rtol = task_rtol if task_rtol is not None else 1e-3
 
       # 1. Correctness Check
       try:
@@ -238,12 +241,8 @@ def main():
       max_rel_diff = 0.0
 
       try:
-        if len(out_base_flat) != len(out_optimized_flat):
-           raise ValueError(f"Output count mismatch: {len(out_base_flat)} vs {len(out_optimized_flat)}")
+        is_correct = outputs_match(out_base_flat, out_optimized_flat, curr_atol, curr_rtol)
         for b, o in zip(out_base_flat, out_optimized_flat):
-          if b.shape != o.shape:
-             raise ValueError(f"Shape mismatch: {b.shape} vs {o.shape}")
-          is_correct = is_correct and bool(jnp.allclose(b, o, atol=curr_atol, rtol=curr_rtol))
           max_abs_diff = max(max_abs_diff, float(jnp.max(jnp.abs(b - o))))
           max_rel_diff = max(max_rel_diff, float(jnp.max(jnp.abs((b - o) / b))))
       except Exception as e:

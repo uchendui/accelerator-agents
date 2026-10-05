@@ -100,13 +100,21 @@ def main():
         raw_inputs = get_inputs()
         
         # Check if the input is a list of tuples or a single tuple
-        if isinstance(raw_inputs, list):
+        multiple_input_configs = isinstance(raw_inputs, list)
+        if multiple_input_configs:
             inputs_list = raw_inputs
         elif isinstance(raw_inputs, tuple) and len(raw_inputs) == 2:
             inputs_list = [raw_inputs]
         else:
             raise ValueError("get_inputs() must return a list of tuples or "
             "a single (dynamic_args, static_args) tuple.")
+
+        task_atol = {atol!r}
+        task_rtol = {rtol!r}
+        if multiple_input_configs:
+            for name, tolerance in (("atol", task_atol), ("rtol", task_rtol)):
+                if isinstance(tolerance, list) and len(tolerance) != len(inputs_list):
+                    raise ValueError(f"{{name}} list length ({{len(tolerance)}}) does not match input count ({{len(inputs_list)}})")
 
         if not base_mod or not hasattr(base_mod, '{kernel_name}'):
             raise RuntimeError("base_kernel.{kernel_name} not found.")
@@ -159,20 +167,27 @@ def main():
                 is_correct = False
                 print(f"Output count mismatch for input config {{idx}}: Expected {{len(out_base_flat)}}, Got {{len(out_optimized_flat)}}")
             else:
+                curr_atol = task_atol[idx] if multiple_input_configs and isinstance(task_atol, list) else task_atol
+                curr_rtol = task_rtol[idx] if multiple_input_configs and isinstance(task_rtol, list) else task_rtol
+                for name, tolerance in (("atol", curr_atol), ("rtol", curr_rtol)):
+                    if isinstance(tolerance, list) and len(tolerance) != len(out_base_flat):
+                        raise ValueError(f"{{name}} list length ({{len(tolerance)}}) does not match output count ({{len(out_base_flat)}})")
                 for i, (b, o) in enumerate(zip(out_base_flat, out_optimized_flat)):
                     if b.shape != o.shape:
                         is_correct = False
                         print(f"Mismatch in output tensor {{i}} for input config {{idx}}:")
                         print(f"  Expected shape: {{b.shape}}, Got shape: {{o.shape}}")
                         continue
-                    
-                    match = bool(jnp.allclose(b, o, atol={atol}, rtol={rtol}))
+
+                    output_atol = curr_atol[i] if isinstance(curr_atol, list) else curr_atol
+                    output_rtol = curr_rtol[i] if isinstance(curr_rtol, list) else curr_rtol
+                    match = bool(jnp.allclose(b, o, atol=output_atol, rtol=output_rtol))
                     if not match:
                         is_correct = False
                         print(f"Mismatch in output tensor {{i}} for input config {{idx}}:")
                         max_diff = jnp.max(jnp.abs(b - o))
                         print(f"  Max absolute difference: {{max_diff}}")
-                        diff_mask = jnp.abs(b - o) > {atol} + {rtol} * jnp.abs(b)
+                        diff_mask = jnp.abs(b - o) > output_atol + output_rtol * jnp.abs(b)
                         print(f"  Mismatched elements: {{jnp.sum(diff_mask)}} / {{b.size}} ({{(jnp.sum(diff_mask)/b.size)*100:.2f}}%)")
 
             if not is_correct:

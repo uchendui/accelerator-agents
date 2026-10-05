@@ -120,8 +120,8 @@ def write_test_file_tool_fn(
   content: str,
   kernel_name: str,
   tool_context: ToolContext,
-  atol: float = 1e-2,
-  rtol: float = 1e-2,
+  atol: float | list[float] = 1e-2,
+  rtol: float | list[float] = 1e-2,
 ) -> str:
   """Writes the generated input generation snippet to the test file using the rigorous harness template.
 

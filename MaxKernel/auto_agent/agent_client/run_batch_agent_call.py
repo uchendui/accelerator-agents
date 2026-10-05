@@ -89,9 +89,9 @@ async def process_problem(
         try:
           task_data = yaml.safe_load(f)
           if "atol" in task_data:
-            atol = float(task_data["atol"])
+            atol = task_data["atol"]
           if "rtol" in task_data:
-            rtol = float(task_data["rtol"])
+            rtol = task_data["rtol"]
         except Exception as e:
           logger.warning(
             f"Failed to parse kernel_task.yaml for {problem_id}: {e}"

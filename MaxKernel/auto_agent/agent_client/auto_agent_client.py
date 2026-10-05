@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 # Load environment variables from .env file if available
 try:
@@ -34,8 +34,8 @@ class AutoAgentClient:
     agent: Optional[Any] = None,
     app_name: str = "auto_agent",
     events_compaction: bool = False,
-    atol: Optional[float] = None,
-    rtol: Optional[float] = None,
+    atol: Optional[Union[float, list[float]]] = None,
+    rtol: Optional[Union[float, list[float]]] = None,
   ):
     self.user_id = user_id
     self.session_id = session_id

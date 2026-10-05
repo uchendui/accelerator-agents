@@ -6,7 +6,7 @@ import os
 import re
 import shutil
 import time
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Union
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -32,8 +32,8 @@ class AutonomousPipelineAgent(BaseAgent):
   max_iterations: int = 2
   session_dir: Optional[str] = None
   end_agent: Optional[str] = None
-  atol: Optional[float] = None
-  rtol: Optional[float] = None
+  atol: Optional[Union[float, list[float]]] = None
+  rtol: Optional[Union[float, list[float]]] = None
 
   def __init__(
     self,
@@ -49,8 +49,8 @@ class AutonomousPipelineAgent(BaseAgent):
     max_iterations: int = 2,
     session_dir: Optional[str] = None,
     end_agent: Optional[str] = None,
-    atol: Optional[float] = None,
-    rtol: Optional[float] = None,
+    atol: Optional[Union[float, list[float]]] = None,
+    rtol: Optional[Union[float, list[float]]] = None,
   ):
     super().__init__(
       name=name,
