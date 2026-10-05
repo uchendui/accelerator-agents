@@ -63,8 +63,8 @@ If the base kernel path is available → proceed to read it using the `read_file
    - Required Arguments:
      - `content` (string): The Python code snippet.
      - `kernel_name` (string): The exact function name of the base kernel entry point (e.g., `"computation"`, `"matmul"`, etc.).
-     - `atol` (float, optional): Absolute tolerance for correctness checks. If user-specified atol (`{atol?}`) is provided, you MUST use it and not generate it randomly. Otherwise, set appropriately based on precision (default 1e-2, BF16 should be 1e-2 or higher).
-     - `rtol` (float, optional): Relative tolerance for correctness checks. If user-specified rtol (`{rtol?}`) is provided, you MUST use it and not generate it randomly. Otherwise, set appropriately based on precision (default 1e-2).
+     - `atol` (float or list, optional): Absolute tolerance for correctness checks. A list has one value per output leaf in `jax.tree_util.tree_leaves` order; pass it unchanged. If user-specified atol (`{atol?}`) is provided, you MUST use it and not generate it randomly. Otherwise, set appropriately based on precision (default 1e-2, BF16 should be 1e-2 or higher).
+     - `rtol` (float or list, optional): Relative tolerance for correctness checks. A list has one value per output leaf in `jax.tree_util.tree_leaves` order; pass it unchanged. If user-specified rtol (`{rtol?}`) is provided, you MUST use it and not generate it randomly. Otherwise, set appropriately based on precision (default 1e-2).
 
 Generate the `get_inputs()` Python snippet now.
 """

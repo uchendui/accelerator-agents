@@ -95,6 +95,12 @@ def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
                            "profiler trace, found " + str(len(times)))
     return statistics.median(times)  # np.median, as JAXBench
 
+def normalize_tolerance(value):
+    if isinstance(value, list):
+        return [float(item) for item in value]
+    return float(value)
+
+
 def main():
     try:
         raw_inputs = get_inputs()
@@ -109,8 +115,8 @@ def main():
             raise ValueError("get_inputs() must return a list of tuples or "
             "a single (dynamic_args, static_args) tuple.")
 
-        task_atol = {atol!r}
-        task_rtol = {rtol!r}
+        task_atol = normalize_tolerance({atol!r})
+        task_rtol = normalize_tolerance({rtol!r})
         if multiple_input_configs:
             for name, tolerance in (("atol", task_atol), ("rtol", task_rtol)):
                 if isinstance(tolerance, list) and len(tolerance) != len(inputs_list):
@@ -167,6 +173,7 @@ def main():
                 is_correct = False
                 print(f"Output count mismatch for input config {{idx}}: Expected {{len(out_base_flat)}}, Got {{len(out_optimized_flat)}}")
             else:
+                # A list indexes inputs for several configs, and outputs for one config.
                 curr_atol = task_atol[idx] if multiple_input_configs and isinstance(task_atol, list) else task_atol
                 curr_rtol = task_rtol[idx] if multiple_input_configs and isinstance(task_rtol, list) else task_rtol
                 for name, tolerance in (("atol", curr_atol), ("rtol", curr_rtol)):

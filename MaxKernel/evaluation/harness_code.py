@@ -20,12 +20,22 @@ def load_module_from_path(module_name, file_path):
   return module
 
 
+def normalize_tolerance(value):
+  if isinstance(value, list):
+    return [float(item) for item in value]
+  return float(value)
+
+
+def validate_output_tolerances(output_count, atol, rtol):
+  # A list holds one tolerance per output leaf in tree_leaves order.
+  for name, tolerance in (("atol", atol), ("rtol", rtol)):
+    if isinstance(tolerance, list) and len(tolerance) != output_count:
+      raise ValueError(f"{name} list length ({len(tolerance)}) does not match output count ({output_count})")
+
+
 def outputs_match(expected, actual, atol, rtol):
   if len(expected) != len(actual):
     return False
-  for name, tolerance in (("atol", atol), ("rtol", rtol)):
-    if isinstance(tolerance, list) and len(tolerance) != len(expected):
-      raise ValueError(f"{name} list length ({len(tolerance)}) does not match output count ({len(expected)})")
   return all(
       b.shape == o.shape and bool(jnp.allclose(
           b, o,
@@ -105,8 +115,8 @@ def main():
       task_data = json.load(f)
 
     input_gen_code = task_data.get("input_gen_code")
-    task_atol = task_data.get("atol")
-    task_rtol = task_data.get("rtol")
+    task_atol = normalize_tolerance(task_data.get("atol", 1e-3))
+    task_rtol = normalize_tolerance(task_data.get("rtol", 1e-3))
 
     if input_gen_code:
       ldict = {}
@@ -168,19 +178,17 @@ def main():
       args = tuple(dynamic_args) + tuple(static_args)
       static_argnums = tuple(range(len(dynamic_args), len(args)))
 
-      if multiple_input_configs and isinstance(task_atol, list):
-        if len(task_atol) != len(inputs_list):
-          raise ValueError(f"atol list length ({len(task_atol)}) does not match input count ({len(inputs_list)})")
-        curr_atol = task_atol[idx]
-      else:
-        curr_atol = task_atol if task_atol is not None else 1e-3
-
-      if multiple_input_configs and isinstance(task_rtol, list):
-        if len(task_rtol) != len(inputs_list):
-          raise ValueError(f"rtol list length ({len(task_rtol)}) does not match input count ({len(inputs_list)})")
-        curr_rtol = task_rtol[idx]
-      else:
-        curr_rtol = task_rtol if task_rtol is not None else 1e-3
+      # A list indexes inputs for several configs, and outputs for one config.
+      current_tolerances = {}
+      for name, tolerance in (("atol", task_atol), ("rtol", task_rtol)):
+        if multiple_input_configs and isinstance(tolerance, list):
+          if len(tolerance) != len(inputs_list):
+            raise ValueError(f"{name} list length ({len(tolerance)}) does not match input count ({len(inputs_list)})")
+          current_tolerances[name] = tolerance[idx]
+        else:
+          current_tolerances[name] = tolerance
+      curr_atol = current_tolerances["atol"]
+      curr_rtol = current_tolerances["rtol"]
 
       # 1. Correctness Check
       try:
@@ -236,9 +244,21 @@ def main():
       out_base_flat = jax.tree_util.tree_leaves(out_base_cpu)
       out_optimized_flat = jax.tree_util.tree_leaves(out_optimized_cpu)
 
+      validate_output_tolerances(len(out_base_flat), curr_atol, curr_rtol)
       is_correct = True
       max_abs_diff = 0.0
       max_rel_diff = 0.0
+
+      if len(out_base_flat) != len(out_optimized_flat):
+        harness_logs.append(
+            f"Output count mismatch for input {idx}: "
+            f"expected {len(out_base_flat)}, got {len(out_optimized_flat)}")
+      else:
+        for output_idx, (b, o) in enumerate(zip(out_base_flat, out_optimized_flat)):
+          if b.shape != o.shape:
+            harness_logs.append(
+                f"Shape mismatch for output {output_idx} of input {idx}: "
+                f"expected {b.shape}, got {o.shape}")
 
       try:
         is_correct = outputs_match(out_base_flat, out_optimized_flat, curr_atol, curr_rtol)
