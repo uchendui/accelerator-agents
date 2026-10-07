@@ -51,6 +51,7 @@ def create_root_agent(
     sort_outputs=sort_outputs,
   )
 
+  from auto_agent.continuation_callbacks import add_continuation_callbacks
   from auto_agent.timing_callbacks import (
     after_agent_callback,
     after_model_callback,
@@ -86,7 +87,11 @@ def create_root_agent(
     _hook(a, "before_tool_callback", before_tool_callback)
     _hook(a, "after_tool_callback", after_tool_callback)
 
+    from google.adk.agents import LlmAgent
     from google.adk.agents.base_agent import BaseAgent
+
+    if isinstance(a, LlmAgent):
+      add_continuation_callbacks(a)
 
     for attr_name in dir(a):
       if attr_name.startswith("_") or attr_name == "parent_agent":

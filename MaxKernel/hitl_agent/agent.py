@@ -4,6 +4,7 @@ This module contains the root orchestrator that coordinates all subagents
 for the human-in-the-loop kernel generation process.
 """
 
+from auto_agent.continuation_callbacks import inject_continuation_callbacks
 from hitl_agent.callbacks import (
   add_pallas_docs,
   add_workdir_callback,
@@ -67,5 +68,7 @@ root_agent = CustomLlmAgent(
   instruction=interactive_prompt.PROMPT,
   description="Orchestrates the human-in-the-loop kernel generation process with GPU to JAX conversion capability.",
 )
+
+inject_continuation_callbacks(root_agent)
 
 __all__ = ["root_agent"]
