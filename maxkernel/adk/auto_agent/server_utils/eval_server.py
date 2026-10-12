@@ -14,7 +14,7 @@ import yaml
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel
 
-from auto_agent.constants import EVAL_SERVER_PORT
+from auto_agent.constants import EVAL_SERVER_PORT, REQUEST_TIMEOUT
 
 logging.basicConfig(
   level=logging.INFO,
@@ -311,7 +311,7 @@ async def _perform_evaluation(request: EvalRequest):
   max_queue_time = (
     request.client_wait_timeout
     if request.client_wait_timeout is not None
-    else 3600 * 3
+    else REQUEST_TIMEOUT
   )
 
   while True:

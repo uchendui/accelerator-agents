@@ -189,7 +189,7 @@ def main():
 
                     output_atol = curr_atol[i] if isinstance(curr_atol, list) else curr_atol
                     output_rtol = curr_rtol[i] if isinstance(curr_rtol, list) else curr_rtol
-                    if sort_before_compare:
+                    if sort_before_compare and b.ndim > 0:
                         b = jnp.sort(b, axis=-1)
                         o = jnp.sort(o, axis=-1)
                     match = bool(jnp.allclose(b, o, atol=output_atol, rtol=output_rtol))

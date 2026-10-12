@@ -4,13 +4,15 @@ import time
 
 import aiohttp
 
+from auto_agent.constants import REQUEST_TIMEOUT
+
 
 async def call_eval_server_async(
   session: aiohttp.ClientSession,
   eval_server_url: str,
   payload: dict,
   poll_interval: int = 10,
-  client_wait_timeout: int = 3600 * 3,  # Default to 3 hours
+  client_wait_timeout: int = REQUEST_TIMEOUT,
 ) -> dict:
   """Calls the evaluation server asynchronously and polls for status.
 
