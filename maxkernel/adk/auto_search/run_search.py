@@ -16,6 +16,7 @@ except ImportError:
     "dotenv not installed, skipping loading environment variables"
   )
 
+from auto_agent.tools.file_tools import search_toolsets
 from auto_search.algorithms.beam_search import BeamSearchOrchestrator
 from auto_search.algorithms.parallel_search import (
   SimpleParallelSearchOrchestrator,
@@ -146,21 +147,22 @@ async def run_search(
   try:
     graph_exist = os.path.exists(graph_db_path)
 
-    orchestrator = get_orchestrator(
-      algorithm=algorithm,
-      problem_id=problem_id,
-      reference_code=reference_code,
-      graph_db_path=graph_db_path,
-      **kwargs,
-    )
+    async with search_toolsets():
+      orchestrator = get_orchestrator(
+        algorithm=algorithm,
+        problem_id=problem_id,
+        reference_code=reference_code,
+        graph_db_path=graph_db_path,
+        **kwargs,
+      )
 
-    if graph_exist:
-      logger.info(f"Existing graph found for {problem_id}. Resuming...")
-      orchestrator.resume()
+      if graph_exist:
+        logger.info(f"Existing graph found for {problem_id}. Resuming...")
+        orchestrator.resume()
 
-    await orchestrator.run()
+      await orchestrator.run()
 
-    best_result = save_optimized_kernel(orchestrator, optimized_file_path)
+      best_result = save_optimized_kernel(orchestrator, optimized_file_path)
 
     if run_subdir:
       import shutil

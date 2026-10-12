@@ -1,11 +1,14 @@
 """File-related tools for subagents."""
 
+import contextlib
+import contextvars
 import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List
 
 from google.adk.tools import FunctionTool, ToolContext
+from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 from mcp import StdioServerParameters
@@ -13,37 +16,73 @@ from mcp import StdioServerParameters
 from auto_agent.config import WORKDIR
 from auto_agent.tools.test_harness import TEST_TEMPLATE
 
-# Read-only filesystem tool for orchestration agent (no write access)
-filesystem_tool_r = MCPToolset(
-  connection_params=StdioConnectionParams(
-    server_params=StdioServerParameters(
-      command="npx",
-      args=[
-        "-y",  # Argument for npx to auto-confirm install
-        "@modelcontextprotocol/server-filesystem@2026.8.31",
-        os.path.abspath(WORKDIR),
-      ],
-    ),
-  ),
-  # Optional: Filter which tools from the MCP server are exposed
-  tool_filter=["list_directory", "read_file"],
-)
+# The MCPToolsets of the running search (set by search_toolsets); outside a
+# search (the HITL agent) one process-wide dict is used instead, as before.
+_search = contextvars.ContextVar("search_toolsets")
+_shared_toolsets = {}
 
-# Read-write filesystem tool for sub-agents
-filesystem_tool_rw = MCPToolset(
-  connection_params=StdioConnectionParams(
-    server_params=StdioServerParameters(
-      command="npx",
-      args=[
-        "-y",  # Argument for npx to auto-confirm install
-        "@modelcontextprotocol/server-filesystem@2026.8.31",
-        os.path.abspath(WORKDIR),
-      ],
-    ),
-  ),
-  # Optional: Filter which tools from the MCP server are exposed
-  tool_filter=["list_directory", "read_file", "write_file"],
-)
+
+def _toolsets():
+  toolsets = _search.get(None)
+  return _shared_toolsets if toolsets is None else toolsets
+
+
+class SearchToolset(BaseToolset):
+  """A filesystem toolset shared by name, backed by one MCP server per search.
+
+  The agents are module-level objects built at import, so they keep one toolset
+  object each; each search gets its own server pair through search_toolsets(),
+  because one shared pair could not serve a thousand concurrent problems (its
+  list_tools calls timed out).
+  """
+
+  def __init__(self, tool_filter):
+    super().__init__(tool_filter=tool_filter)
+
+  def _current(self):
+    toolsets = _toolsets()
+    toolset = toolsets.get(self)
+    if toolset is None:
+      toolset = MCPToolset(
+        connection_params=StdioConnectionParams(
+          server_params=StdioServerParameters(
+            command="npx",
+            args=[
+              "-y",
+              "@modelcontextprotocol/server-filesystem@2026.8.31",
+              os.path.abspath(WORKDIR),
+            ],
+          ),
+        ),
+        tool_filter=self.tool_filter,
+      )
+      toolsets[self] = toolset
+    return toolset
+
+  async def get_tools(self, readonly_context=None):
+    return await self._current().get_tools(readonly_context)
+
+  async def close(self):
+    toolset = _toolsets().pop(self, None)
+    if toolset is not None:
+      await toolset.close()
+
+
+@contextlib.asynccontextmanager
+async def search_toolsets():
+  """Runs one search with its own filesystem server pair, closed at its end."""
+  token = _search.set({})
+  try:
+    yield
+  finally:
+    toolsets = _search.get()
+    _search.reset(token)
+    for toolset in toolsets.values():
+      await toolset.close()
+
+
+filesystem_tool_r = SearchToolset(["list_directory", "read_file"])
+filesystem_tool_rw = SearchToolset(["list_directory", "read_file", "write_file"])
 
 
 def restricted_write_file(state_key: str, description: str) -> FunctionTool:
@@ -194,6 +233,7 @@ write_base_kernel_tool = restricted_write_file(
 __all__ = [
   "filesystem_tool_r",
   "filesystem_tool_rw",
+  "search_toolsets",
   "write_test_file_tool",
   "write_optimized_kernel_tool",
   "write_optimization_plan_tool",
