@@ -16,6 +16,21 @@ from mcp import StdioServerParameters
 from auto_agent.config import WORKDIR
 from auto_agent.tools.test_harness import TEST_TEMPLATE
 
+# Installed once per host with:
+#   npm install --prefix ~/.local/share/mcp-server-filesystem \
+#     @modelcontextprotocol/server-filesystem@2026.8.31
+# An `npx -y` start resolves the package through npm on every start, which
+# timed out with hundreds of searches on one host.
+SERVER_FILESYSTEM_BIN = os.path.expanduser(
+  "~/.local/share/mcp-server-filesystem/node_modules/.bin/mcp-server-filesystem"
+)
+if not os.path.isfile(SERVER_FILESYSTEM_BIN):
+  raise FileNotFoundError(
+    f"{SERVER_FILESYSTEM_BIN} is missing; install it with: npm install --prefix"
+    " ~/.local/share/mcp-server-filesystem"
+    " @modelcontextprotocol/server-filesystem@2026.8.31"
+  )
+
 # The MCPToolsets of the running search (set by search_toolsets); outside a
 # search (the HITL agent) one process-wide dict is used instead, as before.
 _search = contextvars.ContextVar("search_toolsets")
@@ -46,13 +61,10 @@ class SearchToolset(BaseToolset):
       toolset = MCPToolset(
         connection_params=StdioConnectionParams(
           server_params=StdioServerParameters(
-            command="npx",
-            args=[
-              "-y",
-              "@modelcontextprotocol/server-filesystem@2026.8.31",
-              os.path.abspath(WORKDIR),
-            ],
+            command=SERVER_FILESYSTEM_BIN,
+            args=[os.path.abspath(WORKDIR)],
           ),
+          timeout=60,
         ),
         tool_filter=self.tool_filter,
       )
