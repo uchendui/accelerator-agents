@@ -22,6 +22,7 @@ from auto_search.algorithms.parallel_search import (
   SimpleParallelSearchOrchestrator,
 )
 from auto_search.orchestrator import SearchOrchestrator
+from auto_search.run_dir import run_dir
 
 logger = logging.getLogger(__name__)
 
@@ -129,12 +130,7 @@ async def run_search(
 
   run_subdir = None
   if not graph_db_path:
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    run_subdir = os.path.join(
-      os.environ.get("WORKDIR"),
-      "search_runs",
-      f"{problem_id}_run_{algorithm}_{timestamp}",
-    )
+    run_subdir = run_dir(os.environ.get("WORKDIR"), problem_id, algorithm)
     os.makedirs(run_subdir, exist_ok=True)
     graph_db_path = os.path.join(run_subdir, "search_graph.json")
   else:
