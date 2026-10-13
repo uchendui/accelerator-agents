@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from google.adk.tools import FunctionTool, ToolContext
+from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
@@ -15,6 +16,10 @@ from mcp import StdioServerParameters
 
 from auto_agent.config import WORKDIR
 from auto_agent.tools.test_harness import TEST_TEMPLATE
+
+# The harness writes these into the node's workdir. session.json holds the full
+# event history, so reading it grows the prompt past the model input limit.
+HARNESS_FILES = ("session.json", "token_metrics.json", "timing_metrics.json")
 
 # Installed once per host with:
 #   npm install --prefix ~/.local/share/mcp-server-filesystem \
@@ -40,6 +45,51 @@ _shared_toolsets = {}
 def _toolsets():
   toolsets = _search.get(None)
   return _shared_toolsets if toolsets is None else toolsets
+
+
+class NodeFilesystemTool(BaseTool):
+  """Restricts an MCP filesystem tool to one search node's files."""
+
+  def __init__(self, inner):
+    super().__init__(name=inner.name, description=inner.description)
+    self._inner = inner
+
+  def _get_declaration(self):
+    return self._inner._get_declaration()
+
+  async def run_async(self, *, args, tool_context):
+    root = Path(tool_context.state.get("workdir") or WORKDIR).resolve()
+    target = Path(os.path.expanduser(args.get("path", ""))).resolve()
+    if not target.is_relative_to(root):
+      return {
+        "content": [{
+          "type": "text",
+          "text": (
+            "Access denied because the path is outside the node's folder "
+            f"{root}."
+          ),
+        }],
+        "isError": True,
+      }
+    if target.name in HARNESS_FILES:
+      return {
+        "content": [{
+          "type": "text",
+          "text": "Access denied because the path is a harness file.",
+        }],
+        "isError": True,
+      }
+
+    result = await self._inner.run_async(args=args, tool_context=tool_context)
+    if self.name == "list_directory":
+      harness_entries = {f"[FILE] {name}" for name in HARNESS_FILES}
+      for content in result.get("content", []):
+        if content.get("type") == "text":
+          content["text"] = "".join(
+            line for line in content["text"].splitlines(keepends=True)
+            if line.rstrip("\r\n") not in harness_entries
+          )
+    return result
 
 
 class SearchToolset(BaseToolset):
@@ -72,7 +122,8 @@ class SearchToolset(BaseToolset):
     return toolset
 
   async def get_tools(self, readonly_context=None):
-    return await self._current().get_tools(readonly_context)
+    tools = await self._current().get_tools(readonly_context)
+    return [NodeFilesystemTool(tool) for tool in tools]
 
   async def close(self):
     toolset = _toolsets().pop(self, None)
