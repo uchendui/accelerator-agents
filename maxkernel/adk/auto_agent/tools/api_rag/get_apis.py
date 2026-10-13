@@ -90,6 +90,7 @@ def discover_apis(api_prefix, recursive):
 def resolve_api(api_str):
   """Dynamically resolve an API object from its string name."""
   parts = api_str.split(".")
+  # Importing triton loads libtriton.so, whose LLVM segfaults next to jaxlib's.
   if parts[0] not in ("jax", "jaxlib") or "triton" in parts:
     raise ImportError(
       f"Only jax APIs are supported by search_api, got: {api_str}"
