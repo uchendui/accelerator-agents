@@ -78,6 +78,8 @@ class AutonomousPipelineAgent(BaseAgent):
     yield self._initialize_state(ctx)
 
     iteration = len(ctx.session.state.get("history", []))
+    # A restored session holds iterations 0..iteration-1, so iteration-1's
+    # snapshots are what the next iteration would have read.
     if iteration > 0:
       for path_key in [
         "kernel_plan_path",

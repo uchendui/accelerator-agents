@@ -1,4 +1,5 @@
 import asyncio
+import glob
 import logging
 import os
 from typing import List, Optional, Tuple
@@ -65,10 +66,11 @@ class SimpleParallelSearchOrchestrator(SearchOrchestrator):
 
     for node in failed_nodes:
       del self.graph.nodes[node.node_id]
-      session_path = os.path.join(
-        self.run_dir, "nodes", f"{node.node_id}_attempt_1", "session.json"
-      )
-      if os.path.exists(session_path):
+      for session_path in glob.glob(
+        os.path.join(
+          self.run_dir, "nodes", f"{node.node_id}_attempt_*", "session.json"
+        )
+      ):
         os.remove(session_path)
     if failed_nodes:
       self.graph.save()
