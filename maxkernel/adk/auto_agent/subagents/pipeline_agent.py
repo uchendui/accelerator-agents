@@ -39,6 +39,16 @@ STEP_TO_METRIC_KEY = {
   "autotune": "autotune_results",
   "profile": "profiling_summary",
 }
+SESSION_PATH_FILENAMES = {
+  "base_kernel_path": "base_kernel.py",
+  "optimized_kernel_path": "optimized_kernel.py",
+  "kernel_plan_path": "base_kernel_plan.md",
+  "test_file_path": "test_optimized_kernel.py",
+  "profiling_script_path": "profile_optimized_kernel.py",
+  "xplane_pb_path": "profile.xplane.pb",
+  "autotune_specs_path": "autotune_specs.json",
+  "autotune_results_path": "autotune_results.json",
+}
 
 
 class AutonomousPipelineAgent(BaseAgent):
@@ -542,73 +552,12 @@ class AutonomousPipelineAgent(BaseAgent):
 
     os.makedirs(session_dir, exist_ok=True)
 
-    if "workdir" not in ctx.session.state:
-      ctx.session.state["workdir"] = session_dir
-      logging.info(f"[{self.name}] Set workdir: {session_dir}")
-
-    if "base_kernel_path" not in ctx.session.state:
-      ctx.session.state["base_kernel_path"] = os.path.join(
-        session_dir, "base_kernel.py"
-      )
-      logging.info(
-        f"[{self.name}] Set base_kernel_path: {ctx.session.state['base_kernel_path']}"
-      )
-
-    if "optimized_kernel_path" not in ctx.session.state:
-      ctx.session.state["optimized_kernel_path"] = os.path.join(
-        session_dir, "optimized_kernel.py"
-      )
-      logging.info(
-        f"[{self.name}] Set optimized_kernel_path: {ctx.session.state['optimized_kernel_path']}"
-      )
-
-    if "kernel_plan_path" not in ctx.session.state:
-      ctx.session.state["kernel_plan_path"] = os.path.join(
-        session_dir, "base_kernel_plan.md"
-      )
-      logging.info(
-        f"[{self.name}] Set kernel_plan_path: {ctx.session.state['kernel_plan_path']}"
-      )
-
-    if "test_file_path" not in ctx.session.state:
-      ctx.session.state["test_file_path"] = os.path.join(
-        session_dir, "test_optimized_kernel.py"
-      )
-      logging.info(
-        f"[{self.name}] Set test_file_path: {ctx.session.state['test_file_path']}"
-      )
-
-    if "profiling_script_path" not in ctx.session.state:
-      ctx.session.state["profiling_script_path"] = os.path.join(
-        session_dir, "profile_optimized_kernel.py"
-      )
-      logging.info(
-        f"[{self.name}] Set profiling_script_path: {ctx.session.state['profiling_script_path']}"
-      )
-
-    if "xplane_pb_path" not in ctx.session.state:
-      ctx.session.state["xplane_pb_path"] = os.path.join(
-        session_dir, "profile.xplane.pb"
-      )
-      logging.info(
-        f"[{self.name}] Set xplane_pb_path: {ctx.session.state['xplane_pb_path']}"
-      )
-
-    if "autotune_specs_path" not in ctx.session.state:
-      ctx.session.state["autotune_specs_path"] = os.path.join(
-        session_dir, "autotune_specs.json"
-      )
-      logging.info(
-        f"[{self.name}] Set autotune_specs_path: {ctx.session.state['autotune_specs_path']}"
-      )
-
-    if "autotune_results_path" not in ctx.session.state:
-      ctx.session.state["autotune_results_path"] = os.path.join(
-        session_dir, "autotune_results.json"
-      )
-      logging.info(
-        f"[{self.name}] Set autotune_results_path: {ctx.session.state['autotune_results_path']}"
-      )
+    # A reloaded session may come from another experiment's folder, so paths
+    # always follow session_dir.
+    ctx.session.state["workdir"] = session_dir
+    for key, filename in SESSION_PATH_FILENAMES.items():
+      ctx.session.state[key] = os.path.join(session_dir, filename)
+    logging.info(f"[{self.name}] Set workdir: {session_dir}")
 
     # Use atol/rtol from pipeline agent initialization if provided
     if self.atol is not None and "atol" not in ctx.session.state:
