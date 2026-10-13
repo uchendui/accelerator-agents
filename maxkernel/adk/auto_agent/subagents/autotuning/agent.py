@@ -18,6 +18,7 @@ from auto_agent.subagents.autotuning.prompts import (
   autotune_prompt,
   summary_prompt,
 )
+from auto_agent.text_trim import trim_to_tail
 from auto_agent.tools.file_tools import (
   filesystem_tool_r,
   write_autotune_specs_tool,
@@ -28,16 +29,6 @@ from auto_agent.tools.search_api_tool import search_api_tool
 # Agents read autotune_results.json; a full printout can be hundreds of KB in
 # one model request.
 MAX_RESULT_TEXT_CHARS = 2000
-
-
-def _trim_result_text(text: str) -> str:
-  if len(text) <= MAX_RESULT_TEXT_CHARS:
-    return text
-  dropped_chars = len(text) - MAX_RESULT_TEXT_CHARS
-  return (
-    f"[... {dropped_chars} characters dropped ...]\n"
-    f"{text[-MAX_RESULT_TEXT_CHARS:]}"
-  )
 
 
 # 1. Planner Agent
@@ -167,11 +158,13 @@ class AutotuneRunner(BaseAgent):
         dependencies=dependencies,
       )
       if "best_output" in results:
-        results["best_output"] = _trim_result_text(results["best_output"])
+        results["best_output"] = trim_to_tail(
+          results["best_output"], MAX_RESULT_TEXT_CHARS
+        )
       for result in results.get("all_results", []):
         for key in ("output", "error"):
           if key in result:
-            result[key] = _trim_result_text(result[key])
+            result[key] = trim_to_tail(result[key], MAX_RESULT_TEXT_CHARS)
 
       try:
         with open(autotune_results_path, "w") as f:

@@ -29,6 +29,7 @@ from auto_agent.subagents.testing.prompts import (
   summarize_test_results_prompt,
   validation_summary,
 )
+from auto_agent.text_trim import trim_to_tail
 from auto_agent.tools.file_tools import (
   filesystem_tool_r,
   write_test_file_tool,
@@ -41,6 +42,10 @@ COMPILE_VALIDATION_TIMEOUT = 60 * 1
 MOCK_EXECUTION_TIMEOUT = 60 * 5
 TEST_EXECUTION_TIMEOUT = 60 * 5
 TEST_EXECUTION_POLL_INTERVAL = 20
+# The next plan prompt pastes the test output, and a debug printout such as a
+# jaxpr dump can overflow the model's input limit. The tail keeps the
+# traceback and the PERF_METRICS line.
+MAX_TEST_OUTPUT_CHARS = 10000
 
 
 class EvalServerUnavailable(RuntimeError):
@@ -172,7 +177,13 @@ class TestRunner(BaseAgent):
           client_wait_timeout=REQUEST_TIMEOUT,
         )
 
-      full_output = f"STDOUT:\n{result_json.get('output', '')}\n\nSTDERR:\n{result_json.get('error', '') or ''}"
+      output = trim_to_tail(
+        result_json.get("output", ""), MAX_TEST_OUTPUT_CHARS
+      )
+      error = trim_to_tail(
+        result_json.get("error", "") or "", MAX_TEST_OUTPUT_CHARS
+      )
+      full_output = f"STDOUT:\n{output}\n\nSTDERR:\n{error}"
 
       test_results = {
         "exit_code": result_json.get("exit_code", -1),
