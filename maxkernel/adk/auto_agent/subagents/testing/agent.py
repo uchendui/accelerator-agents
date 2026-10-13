@@ -508,6 +508,7 @@ class MockTestExecutionAgent(BaseAgent):
               )
               break
             except TaskTimeoutError:
+              # The test ran past its time limit: a result, not a server error.
               raise
             except Exception as e:
               if retry_delay is None:
