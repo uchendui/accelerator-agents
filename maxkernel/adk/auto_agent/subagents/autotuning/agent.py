@@ -25,7 +25,8 @@ from auto_agent.tools.file_tools import (
 from auto_agent.tools.search_api_tool import search_api_tool
 
 
-# Agents read autotune_results.json; a full printout can be hundreds of KB in one model request.
+# Agents read autotune_results.json; a full printout can be hundreds of KB in
+# one model request.
 MAX_RESULT_TEXT_CHARS = 2000
 
 
@@ -33,7 +34,10 @@ def _trim_result_text(text: str) -> str:
   if len(text) <= MAX_RESULT_TEXT_CHARS:
     return text
   dropped_chars = len(text) - MAX_RESULT_TEXT_CHARS
-  return f"[... {dropped_chars} characters dropped ...]\n{text[-MAX_RESULT_TEXT_CHARS:]}"
+  return (
+    f"[... {dropped_chars} characters dropped ...]\n"
+    f"{text[-MAX_RESULT_TEXT_CHARS:]}"
+  )
 
 
 # 1. Planner Agent
