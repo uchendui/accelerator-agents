@@ -13,8 +13,8 @@ from tensorflow.tsl.profiler.protobuf import xplane_pb2
 
 # Query tables need enough rows for useful analysis.
 QUERY_ROW_LIMIT = 200
-# A slow query blocks every search session because the tools run on its event
-# loop.
+# A slow query blocks every search session because the tools run on the
+# search's event loop.
 QUERY_TIME_LIMIT_S = 60
 # Tool responses must stay below model request limits.
 RESULT_CHAR_LIMIT = 20_000
@@ -45,6 +45,7 @@ def _run_query(conn, sql_query):
   try:
     try:
       cursor = conn.execute(sql_query)
+      # One row past the limit shows whether rows were dropped.
       rows = cursor.fetchmany(QUERY_ROW_LIMIT + 1)
     except sqlite3.OperationalError as e:
       if str(e) == "interrupted":
