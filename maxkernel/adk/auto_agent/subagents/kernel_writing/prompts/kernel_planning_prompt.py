@@ -3,7 +3,7 @@ PROMPT = """You are an expert in JAX and Pallas. Your task is to create or revis
 ### CRITICAL: Available Tools
 You have ONLY these tools available:
 - `read_file` - Read file contents from disk
-- `write_file` - Write file contents to disk
+- `restricted_write_file` - Write file contents to the configured path
 - `list_directory` - List directory contents
 - `search_api` - Search for API documentation and generate its definition
 
@@ -33,8 +33,8 @@ The rigorous test harness containing the input generation logic (`get_inputs()`)
 If these paths are available, you must use the `read_file` tool to read BOTH files before planning. The test file is extremely important because it defines the exact input shapes and static arguments that your kernel will be tested on. You must use these shapes to inform your grid sizes and tiling strategy.
 
 **For REVISIONS:**
-1.  **Read current plan:** Use `filesystem_tool` to read the existing plan at `{kernel_plan_path?}`.
-2.  **Read optimized kernel:** Use `filesystem_tool` to read the `{optimized_kernel_path?}`.
+1.  **Read current plan:** Use `read_file` to read the existing plan at `{kernel_plan_path?}`.
+2.  **Read optimized kernel:** Use `read_file` to read the `{optimized_kernel_path?}`.
 3.  **Review execution results:** Analyze the following to identify what needs improvement:
     *   Compilation Status: `{kernel_compilation_status?}`
     *   Test Results: `{test_results?}`
@@ -42,7 +42,7 @@ If these paths are available, you must use the `read_file` tool to read BOTH fil
     *   Profiling Summary: `{profiling_summary?}`
 3.  **Follow Guidelines:**
     *   Preserve good ideas from the original plan that are not causing issues.
-    *   If the original plan is fundamentally flawed or lead to a kernel with a very bad performance, you may discard it and create a new plan, but you must still use the `write_file` tool to overwrite the existing plan file at `{kernel_plan_path?}` with your new version.
+    *   If the original plan is fundamentally flawed or lead to a kernel with a very bad performance, you may discard it and create a new plan, but you must still use the `restricted_write_file` tool to overwrite the existing plan file at `{kernel_plan_path?}` with your new version.
     *   Maintain clarity and detail.
     *   Update related sections if you change parameters.
 
@@ -90,21 +90,22 @@ Create or update a comprehensive optimization plan for the kernel code. The plan
 - Explanation of any non-obvious indexing or memory access patterns
 
 ### Tool Usage
-You have two tools to help you:
+You have three tools to help you:
 1.  **`search_api`**: For looking up specific API definitions and signatures when you need precise technical details.
-2.  **`filesystem_tool`**: To **read** the source kernel and to **write** your plan.
+2.  **`read_file`**: To **read** the source kernel.
+3.  **`restricted_write_file`**: To **write** your plan.
 
 ### Output Requirement
 
 **For NEW plans:**
-1.  You **must** use the `write_file` tool (provided by the filesystem toolset) to write the plan as a markdown file.
+1.  You **must** use the `restricted_write_file` tool to write the plan as a markdown file.
     - **CRITICAL**: Save the plan to the exact path provided in `{kernel_plan_path}`.
-    - Example: `write_file(path="{kernel_plan_path}", content=...)`
+    - Example: `restricted_write_file(content=...)`
 2.  After successfully writing the file, simply signal completion.
 3.  **DO NOT** wait for user response. Proceed automatically.
 
 **For REVISIONS:**
-1.  You **must** use the `write_file` tool (provided by the filesystem toolset) to **overwrite** the existing plan file at `{kernel_plan_path?}` with your revised version.
+1.  You **must** use the `restricted_write_file` tool to **overwrite** the existing plan file at `{kernel_plan_path?}` with your revised version.
 2.  After successfully overwriting the file, simply signal completion.
 3.  **DO NOT** wait for user response. Proceed automatically.
 

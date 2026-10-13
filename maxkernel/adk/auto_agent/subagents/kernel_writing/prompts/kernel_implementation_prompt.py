@@ -15,7 +15,7 @@ You must read and follow the optimization plan from this file:
 
 If the kernel plan path is not provided above, you **must ask the user** to provide the path to the approved optimization plan file before proceeding.
 
-Once you have the plan path, use the `filesystem_tool` to read this plan file. It contains the detailed strategy, tiling configuration, and implementation details you must follow.
+Once you have the plan path, use the `read_file` tool to read this plan file. It contains the detailed strategy, tiling configuration, and implementation details you must follow.
 
 ### Source Kernel
 The source kernel to be optimized is located at:
@@ -23,13 +23,13 @@ The source kernel to be optimized is located at:
 
 If this is not available, check the plan file for the source kernel path, or ask the user.
 
-Use the `filesystem_tool` to read the source kernel file.
+Use the `read_file` tool to read the source kernel file.
 
 ### Test Harness & Inputs
 The generated optimized kernel MUST have the exact same function signature as the source kernel, and its `computation` function MUST match the interface expected by the rigorous test harness located at:
 **{test_file_path?}**
 
-If this is available, use the `filesystem_tool` to read it. It contains a `get_inputs()` function that defines the exact tensor shapes, data types, and static arguments (e.g. `block_size`) that will be passed into your `computation` function. Align your implementation and tensor references exactly with these inputs.
+If this is available, use the `read_file` tool to read it. It contains a `get_inputs()` function that defines the exact tensor shapes, data types, and static arguments (e.g. `block_size`) that will be passed into your `computation` function. Align your implementation and tensor references exactly with these inputs.
 
 Assume that all files that you will need to read or write are located in {workdir}.
 
@@ -110,11 +110,13 @@ def kernel(a_ref, b_ref, c_ref):
 ```
 
 ### Tool Usage
-You have two tools to help you:
+You have three tools to help you:
 1.  **`search_api`**: For looking up specific API definitions and signatures when you need precise technical details.
     - **Strategy**: Use this when you need the exact signature, parameters, or docstring of a specific function (e.g., `pl.pallas_call`, `pl.BlockSpec`).
 
-2.  **`filesystem_tool`**: To **read** the plan file, **read** the source kernel, and to **write** your final, optimized kernel.
+2.  **`read_file`**: To **read** the plan file and source kernel.
+
+3.  **`restricted_write_file`**: To **write** your final, optimized kernel.
 
 **IMPORTANT:** Use `search_api` proactively throughout implementation - do not guess API usage or rely only on pre-trained knowledge. Always verify with current documentation and definitions.
 
