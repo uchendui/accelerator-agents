@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from typing import List, Optional, Tuple
 
 from auto_search.graph import Node
@@ -37,7 +38,7 @@ class SimpleParallelSearchOrchestrator(SearchOrchestrator):
     else:
       self.strategies = [""] * num_parallel_runs
 
-    self.remaining_strategies = list(self.strategies)
+    self.finished_node_ids = set()
     self.agent_config = agent_config
     self.worker = ADKSessionWorker()
 
@@ -53,14 +54,28 @@ class SimpleParallelSearchOrchestrator(SearchOrchestrator):
       for node in self.graph.nodes.values()
       if node.parent_id == self.graph.root_id
     ]
+    failed_nodes = [
+      node for node in existing_children if node.execution_status == "FAIL"
+    ]
+    self.finished_node_ids = {
+      node.node_id
+      for node in existing_children
+      if node.execution_status == "SUCCESS"
+    }
 
-    for node in existing_children:
-      strategy = node.strategy_applied or ""
-      if strategy in self.remaining_strategies:
-        self.remaining_strategies.remove(strategy)
+    for node in failed_nodes:
+      del self.graph.nodes[node.node_id]
+      session_path = os.path.join(
+        self.run_dir, "nodes", f"{node.node_id}_attempt_1", "session.json"
+      )
+      if os.path.exists(session_path):
+        os.remove(session_path)
+    if failed_nodes:
+      self.graph.save()
+
     logger.info(
-      f"Resumed Simple Parallel Search. Found {len(existing_children)} existing"
-      f" evaluations. {len(self.remaining_strategies)} runs remaining."
+      f"Resumed Simple Parallel Search. Found {len(self.finished_node_ids)}"
+      f" successful evaluations."
     )
 
   def _select_nodes_to_expand(self) -> List[Node]:
@@ -76,8 +91,8 @@ class SimpleParallelSearchOrchestrator(SearchOrchestrator):
 
   def _generate_expansion_tasks(
     self, nodes: List[Node]
-  ) -> List[Tuple[Node, str]]:
-    if not self.remaining_strategies:
+  ) -> List[Tuple[Node, str, str]]:
+    if self._should_terminate():
       logger.info(
         f"All {self.num_parallel_runs} parallel runs have already completed."
       )
@@ -87,25 +102,27 @@ class SimpleParallelSearchOrchestrator(SearchOrchestrator):
     if not root_node:
       return []
 
-    logger.info(
-      f"Launching {len(self.remaining_strategies)} parallel runs for root node."
-    )
-    return [(root_node, strategy) for strategy in self.remaining_strategies]
+    tasks = [
+      (root_node, f"node_{slot + 1:03d}", self.strategies[slot])
+      for slot in range(self.num_parallel_runs)
+      if f"node_{slot + 1:03d}" not in self.finished_node_ids
+    ]
+    logger.info(f"Launching {len(tasks)} parallel runs for root node.")
+    return tasks
 
   def _update_search_state(self, new_nodes: List[Node]) -> None:
-    for node in new_nodes:
-      strategy = node.strategy_applied or ""
-      if strategy in self.remaining_strategies:
-        self.remaining_strategies.remove(strategy)
+    self.finished_node_ids.update(node.node_id for node in new_nodes)
 
   def _should_terminate(self) -> bool:
-    return len(self.remaining_strategies) == 0
+    return len(self.finished_node_ids) == self.num_parallel_runs
 
   async def _execute_expansions(
-    self, tasks: List[Tuple[Node, str]]
+    self, tasks: List[Tuple[Node, str, str]]
   ) -> List[Node]:
-    async def run_task(task_idx: int, parent_node: Node, strategy: str) -> Node:
-      node_id, base_dir = self.get_next_session_node()
+    async def run_task(
+      task_idx: int, parent_node: Node, node_id: str, strategy: str
+    ) -> Node:
+      base_dir = os.path.join(self.run_dir, "nodes", node_id)
       for attempt in range(1, self.max_worker_retries + 1):
         async with self._semaphore:
           session_dir = f"{base_dir}_attempt_{attempt}"
@@ -134,7 +151,7 @@ class SimpleParallelSearchOrchestrator(SearchOrchestrator):
         await asyncio.sleep(2**attempt)
 
     futures = [
-      run_task(i, parent, strategy)
-      for i, (parent, strategy) in enumerate(tasks)
+      run_task(i, parent, node_id, strategy)
+      for i, (parent, node_id, strategy) in enumerate(tasks)
     ]
     return await asyncio.gather(*futures)
