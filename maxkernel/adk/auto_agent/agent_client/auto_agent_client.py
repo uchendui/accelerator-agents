@@ -14,6 +14,7 @@ except ImportError:
     "dotenv not installed, skipping loading environment variables"
   )
 
+from google.adk.agents.run_config import RunConfig
 from google.adk.apps.app import App
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
@@ -109,6 +110,7 @@ class AutoAgentClient:
         user_id=self.user_id,
         session_id=self.session_id,
         new_message=new_message,
+        run_config=RunConfig(max_llm_calls=0),
       ):
         pass
       logger.info(

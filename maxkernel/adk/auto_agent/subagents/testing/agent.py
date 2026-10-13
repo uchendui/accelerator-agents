@@ -4,6 +4,7 @@ This module contains all agents related to generating, validating, and executing
 """
 
 import ast
+import asyncio
 import logging
 import os
 import subprocess
@@ -15,7 +16,10 @@ from google.adk.agents import BaseAgent, SequentialAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 
-from auto_agent.client_utils.eval_client import call_eval_server_async
+from auto_agent.client_utils.eval_client import (
+  TaskTimeoutError,
+  call_eval_server_async,
+)
 from auto_agent.config import get_thinking_planner, model_config
 from auto_agent.constants import EVAL_SERVER_PORT, MODEL_NAME, REQUEST_TIMEOUT
 from auto_agent.custom_types import CustomLlmAgent
@@ -37,6 +41,10 @@ COMPILE_VALIDATION_TIMEOUT = 60 * 1
 MOCK_EXECUTION_TIMEOUT = 60 * 5
 TEST_EXECUTION_TIMEOUT = 60 * 5
 TEST_EXECUTION_POLL_INTERVAL = 20
+
+
+class EvalServerUnavailable(RuntimeError):
+  pass
 
 
 class TestRunner(BaseAgent):
@@ -489,13 +497,28 @@ class MockTestExecutionAgent(BaseAgent):
 
         client_timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT + 10)
         async with aiohttp.ClientSession(timeout=client_timeout) as session:
-          result_json = await call_eval_server_async(
-            session,
-            f"http://localhost:{EVAL_SERVER_PORT}",
-            payload,
-            poll_interval=10,
-            client_wait_timeout=REQUEST_TIMEOUT,
-          )
+          for retry_delay in (10, 20, 40, None):
+            try:
+              result_json = await call_eval_server_async(
+                session,
+                f"http://localhost:{EVAL_SERVER_PORT}",
+                payload,
+                poll_interval=10,
+                client_wait_timeout=REQUEST_TIMEOUT,
+              )
+              break
+            except TaskTimeoutError:
+              raise
+            except Exception as e:
+              if retry_delay is None:
+                error_msg = f"Eval server unavailable: {e}"
+                logging.error(f"[{self.name}] {error_msg}")
+                raise EvalServerUnavailable(error_msg) from e
+              logging.warning(
+                f"[{self.name}] Eval server error: {e}. Retrying in"
+                f" {retry_delay} seconds."
+              )
+              await asyncio.sleep(retry_delay)
 
         exit_code = result_json.get("exit_code", -1)
         stdout = result_json.get("output", "")
@@ -542,6 +565,8 @@ class MockTestExecutionAgent(BaseAgent):
         except Exception as e:
           logging.warning(f"Failed to clean up temporary test file: {e}")
 
+    except EvalServerUnavailable:
+      raise
     except subprocess.TimeoutExpired:
       error_msg = (
         f"Mock test execution timed out after {MOCK_EXECUTION_TIMEOUT} seconds"

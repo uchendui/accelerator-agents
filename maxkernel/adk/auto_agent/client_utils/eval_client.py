@@ -7,6 +7,10 @@ import aiohttp
 from auto_agent.constants import REQUEST_TIMEOUT
 
 
+class TaskTimeoutError(Exception):
+  pass
+
+
 async def call_eval_server_async(
   session: aiohttp.ClientSession,
   eval_server_url: str,
@@ -67,7 +71,11 @@ async def call_eval_server_async(
       if status == "success":
         logging.info(f"Task {task_id} completed successfully.")
         return status_data["result"]
-      elif status in ["failed", "timeout"]:
+      elif status == "timeout":
+        raise TaskTimeoutError(
+          f"Task {task_id} ended with status {status}: {status_data.get('error')}"
+        )
+      elif status == "failed":
         raise Exception(
           f"Task {task_id} ended with status {status}: {status_data.get('error')}"
         )
