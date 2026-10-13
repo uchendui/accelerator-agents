@@ -21,6 +21,17 @@ from auto_agent.tools.test_harness import TEST_TEMPLATE
 # event history, so reading it grows the prompt past the model input limit.
 HARNESS_FILES = ("session.json", "token_metrics.json", "timing_metrics.json")
 
+# The prompts name these node files as readable.
+READABLE_STATE_KEYS = (
+  "base_kernel_path",
+  "optimized_kernel_path",
+  "kernel_plan_path",
+  "test_file_path",
+  "profiling_script_path",
+  "autotune_specs_path",
+  "autotune_results_path",
+)
+
 # Installed once per host with:
 #   npm install --prefix ~/.local/share/mcp-server-filesystem \
 #     @modelcontextprotocol/server-filesystem@2026.8.31
@@ -58,7 +69,9 @@ class NodeFilesystemTool(BaseTool):
     return self._inner._get_declaration()
 
   async def run_async(self, *, args, tool_context):
-    root = Path(tool_context.state.get("workdir") or WORKDIR).resolve()
+    state = tool_context.state
+    workdir = state.get("workdir")
+    root = Path(workdir or WORKDIR).resolve()
 
     def access_denied(text):
       return {
@@ -76,21 +89,42 @@ class NodeFilesystemTool(BaseTool):
     if target.name in HARNESS_FILES:
       return access_denied("Access denied because the path is a harness file.")
 
+    allowed = None
+    if workdir:
+      allowed = {
+        Path(state[key]).resolve()
+        for key in READABLE_STATE_KEYS
+        if state.get(key)
+      }
+      if self.name == "read_file" and target not in allowed:
+        return access_denied("Access denied because the path is not readable.")
+      if self.name == "list_directory" and target != root:
+        return access_denied(
+          "Access denied because the path is not the node folder."
+        )
+
     result = await self._inner.run_async(args=args, tool_context=tool_context)
     if self.name == "list_directory":
       harness_entries = {f"[FILE] {name}" for name in HARNESS_FILES}
 
-      def remove_harness_files(text):
+      def filter_directory_listing(text):
+        if allowed is None:
+          return "\n".join(
+            line for line in text.splitlines() if line not in harness_entries
+          )
         return "\n".join(
-          line for line in text.splitlines() if line not in harness_entries
+          line
+          for line in text.splitlines()
+          if line.startswith("[FILE] ")
+          and (target / line.removeprefix("[FILE] ")).resolve() in allowed
         )
 
       for content in result.get("content", []):
         if content.get("type") == "text":
-          content["text"] = remove_harness_files(content["text"])
+          content["text"] = filter_directory_listing(content["text"])
       structured_content = result.get("structuredContent")
       if structured_content and "content" in structured_content:
-        structured_content["content"] = remove_harness_files(
+        structured_content["content"] = filter_directory_listing(
           structured_content["content"]
         )
     return result
