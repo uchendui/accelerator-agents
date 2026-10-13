@@ -33,6 +33,12 @@ STEP_TO_LAST_ARTIFACT_KEY = {
   "profile": "autotune_results_path",
 }
 PIPELINE_STEPS = ["plan", "implement", "validate", "test_run", "autotune"]
+STEP_TO_METRIC_KEY = {
+  "validate": "kernel_compilation_status",
+  "test_run": "test_results",
+  "autotune": "autotune_results",
+  "profile": "profiling_summary",
+}
 
 
 class AutonomousPipelineAgent(BaseAgent):
@@ -181,8 +187,9 @@ class AutonomousPipelineAgent(BaseAgent):
           async for event in self.plan_agent.run_async(ctx):
             yield event
 
-          self._clear_iteration_metrics(ctx)
+        self._clear_iteration_metrics(ctx, skip_through)
 
+        if skip_through < 0:
           if self._should_end_at_step(ctx, iteration, "plan"):
             yield self._create_history_event(ctx)
             self._update_timing_metrics(ctx, iteration)
@@ -456,16 +463,19 @@ class AutonomousPipelineAgent(BaseAgent):
 
     self._record_history_snapshot(ctx, iteration)
 
-  def _clear_iteration_metrics(self, ctx: InvocationContext):
-    """Clears iteration-specific metrics to avoid carrying over stale data."""
-    for key in [
-      "kernel_compilation_status",
-      "validation_loop_status",
-      "test_results",
-      "autotune_results",
-      "profiling_summary",
-    ]:
-      ctx.session.state.pop(key, None)
+  def _clear_iteration_metrics(
+    self, ctx: InvocationContext, skip_through: int
+  ):
+    """Clears metrics for steps that will run in this iteration.
+
+    These pops are not saved, so a resumed session still holds the last
+    iteration's values for steps it has not run. The keys of skipped steps
+    stay.
+    """
+    ctx.session.state.pop("validation_loop_status", None)
+    for step, key in STEP_TO_METRIC_KEY.items():
+      if step not in PIPELINE_STEPS[: skip_through + 1]:
+        ctx.session.state.pop(key, None)
 
   def _update_timing_metrics(self, ctx: InvocationContext, iteration: int):
     if "iter_start_time" in ctx.session.state:
