@@ -41,15 +41,7 @@ Based on the test results, provide **specific, actionable recommendations** for 
 
 **Use your tools to research recommendations:**
 
-1. **`retrieval_tool`**: Use this EXTENSIVELY to look up:
-   - Common error patterns and their solutions (e.g., "BlockSpec errors", "JAX shape mismatch")
-   - Best practices for fixing compilation issues
-   - Numerical accuracy guidelines for Pallas kernels
-   - Performance optimization patterns for TPU
-   - TPU-specific error debugging (memory constraints, MXU usage, etc.)
-   - Debugging strategies for specific error types
-
-2. **`search_api`**: Use this to find:
+1. **`search_api`**: Use this to find:
    - Specific API documentation for error-prone functions
    - Known issues and workarounds
 
@@ -63,7 +55,6 @@ Based on the test results, provide **specific, actionable recommendations** for 
 **Important**:
 - Research the specific error types using your tools before making recommendations
 - Provide code examples or specific changes when possible
-- Reference documentation or examples you find via retrieval_tool
 - Prioritize recommendations by impact and ease of implementation
 
 ### Output Format

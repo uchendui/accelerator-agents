@@ -40,24 +40,15 @@ Review the **current compilation error** and the **compilation history** to unde
 
 ### Step 2.5: MANDATORY Research (DO THIS BEFORE WRITING ANY CODE)
 
-**BEFORE making any changes, you MUST use `retrieval_tool` and/or `search_api` to research:**
+**BEFORE making any changes, you MUST use `search_api` to research:**
 
-1. **Query the specific error message (Use `retrieval_tool`):**
-   - Extract the main error type (e.g., "TypeError", "ValueError", "Block shape error")
-   - Search: `retrieval_tool` with the error message or key phrase
-   - Example: "Block shape must have same number of dimensions"
-
-2. **Query each Pallas API involved (Use `search_api` for definitions, `retrieval_tool` for docs):**
+1. **Query each Pallas API involved (Use `search_api`):**
    - Identify Pallas functions in the error trace (pl.pallas_call, pl.BlockSpec, pltpu.emit_pipeline, etc.)
    - Use `search_api` with the exact API name to get its definition and parameters
-   - Use `retrieval_tool` to search for broader documentation or discussions about the API
    - Example for search_api: `search_api(api_name="jax.experimental.pallas.pallas_call")`
-   - Example for retrieval_tool: "pl.pallas_call parameters"
 
-3. **Search for examples (Use `retrieval_tool` or `search_api`):**
-   - Query: Use `retrieval_tool` with "example" + the API or pattern you need
-   - Alternatively, use `search_api` with the API name, as the generated definition may include usage examples
-   - Example for retrieval_tool: "pallas_call example"
+2. **Search for examples (Use `search_api`):**
+   - Use `search_api` with the API name, as the generated definition may include usage examples
    - Example for search_api: `search_api(api_name="jax.experimental.pallas.pallas_call")`
 
 **DO NOT skip this step.** Even if you think you know the answer, verify it first. API signatures and requirements change between versions.
@@ -88,7 +79,7 @@ The validation loop will test your fix and give you another chance if it fails.
 2. **Fix Only What's Broken:**
    - Correct Python syntax errors
    - Fix import statements and module paths
-   - Correct Pallas/JAX API usage (use `retrieval_tool` and/or `search_api` to verify correct APIs)
+   - Correct Pallas/JAX API usage (use `search_api` to verify correct APIs)
    - Fix variable references and scoping issues
    - Ensure the `main` function is present and correctly calls the kernel
    - **Consider the progression of errors** - if the same type of error persists, try a different approach
@@ -118,7 +109,7 @@ The validation loop will test your fix and give you another chance if it fails.
 Use the `restricted_write_file` tool to overwrite the kernel file. The tool will automatically save it to the path specified in `{optimized_kernel_path?}`. You only need to provide the `content`.
 
 If you are uncertain about the fix:
-- Make your best educated guess based on research (RAG or search_api)
+- Make your best educated guess based on research (search_api)
 - Try the simplest fix first
 - The validation loop will test it and give you another chance
 
@@ -165,11 +156,10 @@ FIX_SUMMARY:
 
 ## Tools Available
 
-1. **`retrieval_tool`**: Query Pallas/JAX/TPU documentation (USE THIS EXTENSIVELY)
-2. **`search_api`**: Search for API definitions and recent changes
-3. **`read_file`**: Read the kernel file and optimization plan
+1. **`search_api`**: Search for API definitions and recent changes
+2. **`read_file`**: Read the kernel file and optimization plan
    - Required Argument: `path` 
-4. **`restricted_write_file`**: Write the corrected kernel file
+3. **`restricted_write_file`**: Write the corrected kernel file
    - The tool will automatically save it to the path specified in `{optimized_kernel_path}`.
    - Required Argument: `content` (The complete file content)
    - Example: `restricted_write_file(content=...)`
@@ -180,7 +170,7 @@ FIX_SUMMARY:
 
 - If the optimization plan fundamentally conflicts with Pallas capabilities, inform the user
 - If you must change block sizes or grid config to fix compilation, explain why
-- Always verify API usage with `retrieval_tool` or `search_api` before making changes
+- Always verify API usage with `search_api` before making changes
 - The goal is a compiling kernel that still achieves the planned optimizations
 - Compilation errors are often simple syntax/API issues that don't require strategy changes
 """

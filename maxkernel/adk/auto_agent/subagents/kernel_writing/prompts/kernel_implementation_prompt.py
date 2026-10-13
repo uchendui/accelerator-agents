@@ -110,25 +110,13 @@ def kernel(a_ref, b_ref, c_ref):
 ```
 
 ### Tool Usage
-You have three tools to help you:
-1.  **`retrieval_tool`**: Use this EXTENSIVELY throughout implementation to retrieve Pallas/JAX/TPU documentation. Essential for:
-    - Finding implementation examples for specific operations (matmul, reductions, etc.)
-    - Looking up memory reference operations (`.load()`, `.store()`, `[...]`)
-    - Understanding grid specifications and BlockSpec patterns with index_map lambdas
-    - Checking correct usage of TPU-specific features (pl.when, memory barriers, etc.)
-    - Looking up TPU architecture details (memory hierarchy, MXU specs, vector units)
-    - Debugging compilation or runtime issues with specific API calls
-
-    **Retrieval strategy:**
-    - When implementing specific patterns, query for examples (e.g., "BlockSpec index_map examples")
-    - If you encounter an error or uncertainty, query for troubleshooting tips (e.g., "common BlockSpec errors")
-
-2.  **`search_api`**: For looking up specific API definitions and signatures when you need precise technical details.
+You have two tools to help you:
+1.  **`search_api`**: For looking up specific API definitions and signatures when you need precise technical details.
     - **Strategy**: Use this when you need the exact signature, parameters, or docstring of a specific function (e.g., `pl.pallas_call`, `pl.BlockSpec`).
 
-3.  **`filesystem_tool`**: To **read** the plan file, **read** the source kernel, and to **write** your final, optimized kernel.
+2.  **`filesystem_tool`**: To **read** the plan file, **read** the source kernel, and to **write** your final, optimized kernel.
 
-**IMPORTANT:** Use `retrieval_tool` and `search_api` proactively throughout implementation - do not guess API usage or rely only on pre-trained knowledge. Always verify with current documentation and definitions.
+**IMPORTANT:** Use `search_api` proactively throughout implementation - do not guess API usage or rely only on pre-trained knowledge. Always verify with current documentation and definitions.
 
 
 ### Output Requirement

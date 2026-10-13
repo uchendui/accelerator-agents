@@ -6,7 +6,6 @@ You have ONLY these tools available:
 - `write_file` - Write file contents to disk
 - `list_directory` - List directory contents
 - `search_api` - Search for API documentation and generate its definition
-- `retrieval_tool` - Search Pallas/JAX/TPU documentation
 
 **DO NOT call any other tools.** If you need to perform a task, use ONLY the tools listed above.
 
@@ -91,25 +90,9 @@ Create or update a comprehensive optimization plan for the kernel code. The plan
 - Explanation of any non-obvious indexing or memory access patterns
 
 ### Tool Usage
-You have three tools to help you:
-1.  **`retrieval_tool`**: Use this EXTENSIVELY to retrieve Pallas/JAX/TPU documentation, optimization patterns, and examples from the RAG corpus. This is your PRIMARY source for:
-    - Tiling strategies and block size recommendations for specific operations (e.g., "matmul tiling", "reduction block sizes")
-    - Memory layout patterns (HBM, VMEM, SMEM) and best practices
-    - TPU-specific optimization techniques (pipelining, prefetching, memory barriers)
-    - TPU architecture details (HBM, VMEM, SMEM, MXU capabilities, vector units)
-    - API signatures and usage examples (pl.pallas_call, BlockSpec, program_id, etc.)
-    - Performance tuning guidelines and profiling strategies
-    - Common patterns for specific kernel types (matmul, convolution, reduction, etc.)
-
-    **Retrieval strategy:**
-    - Query for the kernel type first (e.g., "matrix multiplication kernel example")
-    - Query for specific optimizations (e.g., "TPU pipelining techniques")
-    - Query for memory management (e.g., "VMEM usage patterns")
-
-2.  **`search_api`**: For looking up specific API definitions and signatures when you need precise technical details.
-3.  **`filesystem_tool`**: To **read** the source kernel and to **write** your plan.
-
-**IMPORTANT:** You MUST use `retrieval_tool` multiple times while creating your plan to ensure accuracy. Do not rely on pre-trained knowledge alone - always verify with current documentation.
+You have two tools to help you:
+1.  **`search_api`**: For looking up specific API definitions and signatures when you need precise technical details.
+2.  **`filesystem_tool`**: To **read** the source kernel and to **write** your plan.
 
 ### Output Requirement
 
