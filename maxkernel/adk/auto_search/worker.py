@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -69,16 +68,18 @@ class ADKSessionWorker:
     with open(base_kernel_path, "w") as f:
       f.write(reference_code)
 
+    resuming = os.path.exists(os.path.join(session_dir, "session.json"))
     if parent_node.depth > 0 and parent_node.code:
       optimized_kernel_path = os.path.join(session_dir, "optimized_kernel.py")
-      with open(optimized_kernel_path, "w") as f:
-        f.write(parent_node.code)
+      if not resuming or not os.path.exists(optimized_kernel_path):
+        with open(optimized_kernel_path, "w") as f:
+          f.write(parent_node.code)
 
-    kernel_plan_path = None
     if parent_node.plan:
       kernel_plan_path = os.path.join(session_dir, "base_kernel_plan.md")
-      with open(kernel_plan_path, "w") as f:
-        f.write(parent_node.plan)
+      if not resuming or not os.path.exists(kernel_plan_path):
+        with open(kernel_plan_path, "w") as f:
+          f.write(parent_node.plan)
 
   def _prepare_initial_state(self, parent_node: Node) -> Dict[str, Any]:
     initial_state = {}
@@ -125,19 +126,14 @@ class ADKSessionWorker:
       query=query,
       agent=custom_agent,
       events_compaction=events_compaction,
+      session_dir=session_dir,
     )
 
     await client.create_session(initial_state)
     try:
       await client.run_async()
     finally:
-      try:
-        session_json_path = os.path.join(session_dir, "session.json")
-        with open(session_json_path, "w") as f:
-          json.dump(client.get_session_data(), f, indent=2)
-        logger.info(f"Saved session data to {session_json_path}")
-      except Exception as se:
-        logger.warning(f"Failed to save session data for {node_id}: {se}")
+      await client.save_session()
     return client.get_state()
 
   def _process_results(

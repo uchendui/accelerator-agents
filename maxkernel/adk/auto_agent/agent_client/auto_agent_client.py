@@ -2,7 +2,11 @@ import argparse
 import asyncio
 import json
 import logging
+import os
+import tempfile
 from typing import Any, Optional, Union
+
+from google.adk.events import Event
 
 # Load environment variables from .env file if available
 try:
@@ -35,6 +39,7 @@ class AutoAgentClient:
     agent: Optional[Any] = None,
     app_name: str = "auto_agent",
     events_compaction: bool = False,
+    session_dir: Optional[str] = None,
     atol: Optional[Union[float, list[float]]] = None,
     rtol: Optional[Union[float, list[float]]] = None,
     sort_before_compare: bool = False,
@@ -51,16 +56,53 @@ class AutoAgentClient:
     self.session = None
     self.app_name = app_name
     self.events_compaction = events_compaction
+    self.session_dir = session_dir
 
   async def create_session(
     self, initial_state: Optional[dict[str, Any]] = None
   ) -> None:
+    if self.session_dir:
+      session_json_path = os.path.join(self.session_dir, "session.json")
+      if os.path.exists(session_json_path):
+        with open(session_json_path) as f:
+          saved_session = json.load(f)
+        self.session = await self.session_service.create_session(
+          app_name=self.app_name,
+          user_id=self.user_id,
+          session_id=self.session_id,
+          state=saved_session["state"],
+        )
+        for saved_event in saved_session["events"]:
+          await self.session_service.append_event(
+            self.session, Event.model_validate(saved_event)
+          )
+        self.session = await self.session_service.get_session(
+          app_name=self.app_name,
+          user_id=self.user_id,
+          session_id=self.session_id,
+        )
+        return
+
     self.session = await self.session_service.create_session(
       app_name=self.app_name,
       user_id=self.user_id,
       session_id=self.session_id,
       state=initial_state,
     )
+
+  async def save_session(self) -> None:
+    self.session = await self.session_service.get_session(
+      app_name=self.app_name,
+      user_id=self.user_id,
+      session_id=self.session_id,
+    )
+    session_json_path = os.path.join(self.session_dir, "session.json")
+    with tempfile.NamedTemporaryFile(
+      "w", dir=self.session_dir, delete=False
+    ) as f:
+      json.dump(self.get_session_data(), f, indent=2)
+      temp_path = f.name
+    os.replace(temp_path, session_json_path)
 
   def get_session_data(self) -> dict:
     if not self.session:
@@ -112,7 +154,11 @@ class AutoAgentClient:
         new_message=new_message,
         run_config=RunConfig(max_llm_calls=0),
       ):
-        pass
+        state_delta = event.actions and event.actions.state_delta
+        if self.session_dir and state_delta and (
+          "history" in state_delta or "validation_loop_status" in state_delta
+        ):
+          await self.save_session()
       logger.info(
         f"Finished in-process agent run for session {self.session_id}"
       )
