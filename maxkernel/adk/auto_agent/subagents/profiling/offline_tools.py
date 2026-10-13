@@ -113,6 +113,7 @@ def load_xplane_and_query(xplane_path: str, sql_query: str) -> str:
       result = rows.to_markdown(index=False)
     except ImportError:
       result = rows.to_string(index=False)
+    # Cap the table before adding the rows note, so the cap cannot cut it off.
     result = _cap_string(result)
     if len(df) > QUERY_ROW_LIMIT:
       dropped = len(df) - QUERY_ROW_LIMIT
