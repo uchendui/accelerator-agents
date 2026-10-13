@@ -25,6 +25,17 @@ from auto_agent.tools.file_tools import (
 from auto_agent.tools.search_api_tool import search_api_tool
 
 
+# Agents read autotune_results.json; a full printout can be hundreds of KB in one model request.
+MAX_RESULT_TEXT_CHARS = 2000
+
+
+def _trim_result_text(text: str) -> str:
+  if len(text) <= MAX_RESULT_TEXT_CHARS:
+    return text
+  dropped_chars = len(text) - MAX_RESULT_TEXT_CHARS
+  return f"[... {dropped_chars} characters dropped ...]\n{text[-MAX_RESULT_TEXT_CHARS:]}"
+
+
 # 1. Planner Agent
 # This agent identifies parameters, creates the template, and defines the search space.
 # It saves them to session state instead of calling the tool directly.
@@ -151,6 +162,12 @@ class AutotuneRunner(BaseAgent):
         backend="tpu",
         dependencies=dependencies,
       )
+      if "best_output" in results:
+        results["best_output"] = _trim_result_text(results["best_output"])
+      for result in results.get("all_results", []):
+        for key in ("output", "error"):
+          if key in result:
+            result[key] = _trim_result_text(result[key])
 
       try:
         with open(autotune_results_path, "w") as f:
