@@ -3,6 +3,7 @@
 import gzip
 import json
 import sqlite3
+import time
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -12,6 +13,9 @@ from tensorflow.tsl.profiler.protobuf import xplane_pb2
 
 # Query tables need enough rows for useful analysis.
 QUERY_ROW_LIMIT = 200
+# A slow query blocks every search session because the tools run on its event
+# loop.
+QUERY_TIME_LIMIT_S = 60
 # Tool responses must stay below model request limits.
 RESULT_CHAR_LIMIT = 20_000
 NARROW_QUERY_MESSAGE = (
@@ -33,6 +37,29 @@ def _get_xplane_path(profiling_results: str) -> str:
   """Extracts xplane path from profiling results string or context."""
 
   return profiling_results.strip()
+
+
+def _run_query(conn, sql_query):
+  deadline = time.monotonic() + QUERY_TIME_LIMIT_S
+  conn.set_progress_handler(lambda: time.monotonic() >= deadline, 10_000)
+  try:
+    try:
+      cursor = conn.execute(sql_query)
+      rows = cursor.fetchmany(QUERY_ROW_LIMIT + 1)
+    except sqlite3.OperationalError as e:
+      if str(e) == "interrupted":
+        raise TimeoutError(
+          f"the query ran longer than {QUERY_TIME_LIMIT_S} s; "
+          f"{NARROW_QUERY_MESSAGE}"
+        ) from e
+      raise
+    columns = [item[0] for item in (cursor.description or [])]
+  finally:
+    conn.set_progress_handler(None, 0)
+  return (
+    pd.DataFrame(rows[:QUERY_ROW_LIMIT], columns=columns),
+    len(rows) > QUERY_ROW_LIMIT,
+  )
 
 
 def load_xplane_and_query(xplane_path: str, sql_query: str) -> str:
@@ -105,19 +132,20 @@ def load_xplane_and_query(xplane_path: str, sql_query: str) -> str:
     conn.commit()
 
     # Run Query
-    df = pd.read_sql_query(sql_query, conn)
+    df, more_rows = _run_query(conn, sql_query)
     conn.close()
 
-    rows = df.head(QUERY_ROW_LIMIT)
     try:
-      result = rows.to_markdown(index=False)
+      result = df.to_markdown(index=False)
     except ImportError:
-      result = rows.to_string(index=False)
+      result = df.to_string(index=False)
     # Cap the table before adding the rows note, so the cap cannot cut it off.
     result = _cap_string(result)
-    if len(df) > QUERY_ROW_LIMIT:
-      dropped = len(df) - QUERY_ROW_LIMIT
-      result += f"\n[... {dropped} rows dropped; {NARROW_QUERY_MESSAGE}]"
+    if more_rows:
+      result += (
+        f"\n[... more than {QUERY_ROW_LIMIT} rows; only the first "
+        f"{QUERY_ROW_LIMIT} are shown; {NARROW_QUERY_MESSAGE}]"
+      )
     return result
 
   except Exception as e:
@@ -229,7 +257,7 @@ def create_chart_from_xplane(
           )
     conn.commit()
 
-    df = pd.read_sql_query(sql_query, conn)
+    df, more_rows = _run_query(conn, sql_query)
     conn.close()
 
     if df.empty:
@@ -251,7 +279,13 @@ def create_chart_from_xplane(
     plt.savefig(output_filename)
     plt.close()
 
-    return f"Chart saved to {output_filename}"
+    result = f"Chart saved to {output_filename}"
+    if more_rows:
+      result += (
+        f"\n[... more than {QUERY_ROW_LIMIT} rows; the chart shows only "
+        f"the first {QUERY_ROW_LIMIT} rows.]"
+      )
+    return result
 
   except Exception as e:
     return _cap_string(f"Error creating chart: {e}")
