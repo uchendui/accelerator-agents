@@ -10,6 +10,25 @@ import pandas as pd
 from tensorflow.tsl.profiler.protobuf import xplane_pb2
 
 
+# Query tables need enough rows for useful analysis.
+QUERY_ROW_LIMIT = 200
+# Tool responses must stay below model request limits.
+RESULT_CHAR_LIMIT = 20_000
+NARROW_QUERY_MESSAGE = (
+  "narrow the query with LIMIT, WHERE, GROUP BY, or aggregates."
+)
+
+
+def _cap_string(value: str) -> str:
+  if len(value) <= RESULT_CHAR_LIMIT:
+    return value
+  dropped = len(value) - RESULT_CHAR_LIMIT
+  return (
+    value[:RESULT_CHAR_LIMIT]
+    + f"\n[... {dropped} characters dropped; {NARROW_QUERY_MESSAGE}]"
+  )
+
+
 def _get_xplane_path(profiling_results: str) -> str:
   """Extracts xplane path from profiling results string or context."""
 
@@ -89,10 +108,19 @@ def load_xplane_and_query(xplane_path: str, sql_query: str) -> str:
     df = pd.read_sql_query(sql_query, conn)
     conn.close()
 
-    return df.to_markdown(index=False)
+    rows = df.head(QUERY_ROW_LIMIT)
+    try:
+      result = rows.to_markdown(index=False)
+    except ImportError:
+      result = rows.to_string(index=False)
+    result = _cap_string(result)
+    if len(df) > QUERY_ROW_LIMIT:
+      dropped = len(df) - QUERY_ROW_LIMIT
+      result += f"\n[... {dropped} rows dropped; {NARROW_QUERY_MESSAGE}]"
+    return result
 
   except Exception as e:
-    return f"Error executing query: {e}"
+    return _cap_string(f"Error executing query: {e}")
 
 
 def get_hlo_dump(
@@ -131,7 +159,7 @@ def get_hlo_dump(
     )
 
   except Exception as e:
-    return f"Error extracting HLO: {e}"
+    return _cap_string(f"Error extracting HLO: {e}")
 
 
 def create_chart_from_xplane(
@@ -225,7 +253,7 @@ def create_chart_from_xplane(
     return f"Chart saved to {output_filename}"
 
   except Exception as e:
-    return f"Error creating chart: {e}"
+    return _cap_string(f"Error creating chart: {e}")
 
 
 def get_overview_page_metrics(xplane_path: str) -> str:
@@ -338,7 +366,7 @@ def get_overview_page_metrics(xplane_path: str) -> str:
     metrics["build_target"] = "N/A (Offline)"
     metrics["xid"] = "N/A (Offline)"
 
-    return json.dumps(metrics, indent=2)
+    return _cap_string(json.dumps(metrics, indent=2))
 
   except Exception as e:
-    return f"Error generating overview metrics: {e}"
+    return _cap_string(f"Error generating overview metrics: {e}")
