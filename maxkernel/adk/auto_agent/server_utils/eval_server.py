@@ -106,8 +106,8 @@ class Backend:
     return self.__str__()
 
   def set_status(self, status: str):
-    if status not in ["available", "busy"]:
-      raise ValueError("Status must be 'available' or 'busy'")
+    if status not in ["available", "busy", "down"]:
+      raise ValueError("Status must be 'available', 'busy', or 'down'")
     self.status = status
 
   def get_status(self):
@@ -294,7 +294,7 @@ async def run_evaluation_task(task_id: str, request: EvalRequest):
       _tasks[task_id]["status"] = TaskStatus.TIMEOUT
     else:
       _tasks[task_id]["status"] = TaskStatus.FAILED
-    _tasks[task_id]["error"] = e.detail
+    _tasks[task_id]["error"] = str(e.detail)
   except Exception as e:
     _tasks[task_id]["status"] = TaskStatus.FAILED
     _tasks[task_id]["error"] = str(e)
@@ -306,7 +306,6 @@ async def _perform_evaluation(request: EvalRequest):
   if request.eval_type not in EvalTypes:
     raise HTTPException(status_code=400, detail="Invalid evaluation type")
 
-  # Acquire backend, retry if busy
   start_queue_time = time.time()
   max_queue_time = (
     request.client_wait_timeout
@@ -315,90 +314,107 @@ async def _perform_evaluation(request: EvalRequest):
   )
 
   while True:
-    if time.time() - start_queue_time > max_queue_time:
-      raise HTTPException(
-        status_code=408,
-        detail="Timed out waiting for an available backend in queue",
-      )
-
-    async with backend_semaphore:
-      backend = evaluator.get_available_backend(
-        backend_type=request.backend_type
-      )
-      if backend:
-        backend.set_status("busy")
-        backend_ip = backend.ip
-        backend_port = backend.port
-        backend_name = backend.name
-        backend_type = backend.backend_type
-        break
-    await asyncio.sleep(0.1)
-
-  try:
-    # Start evaluation process
-    requested_type_msg = (
-      f" (requested: {request.backend_type})" if request.backend_type else ""
-    )
-    logging.info(
-      f"Starting evaluation on {backend_type} backend '{backend_name}' "
-      f"({backend_ip}:{backend_port}) for {request.eval_type.value}"
-      f"{requested_type_msg}"
-    )
-
-    # Construct payload based on eval type
-    payload = {
-      "eval_type": request.eval_type.value,
-      "timeout": request.timeout,
-    }
-    if request.eval_type == EvalTypes.AUTOTUNE:
-      payload["code_template"] = request.code_template
-      payload["search_space"] = request.search_space
-      backend_timeout = request.total_timeout
-      payload["total_timeout"] = request.total_timeout
-      payload["dependencies"] = request.dependencies
-    else:
-      payload["code"] = request.code
-      payload["dependencies"] = request.dependencies
-      backend_timeout = request.timeout
-
-    client_timeout = aiohttp.ClientTimeout(total=backend_timeout + 10)
-    async with aiohttp.ClientSession(timeout=client_timeout) as session:
-      async with session.post(
-        f"http://{backend_ip}:{backend_port}/{request.eval_type.value}",
-        json=payload,
-      ) as response:
-        result = await response.json()
-        logging.info(
-          f"Received response from {backend_name}: {response.status}"
+    while True:
+      matching_backends = [
+        backend
+        for backend in evaluator.backends
+        if request.backend_type is None
+        or backend.backend_type == request.backend_type
+      ]
+      if matching_backends and all(
+        backend.get_status() == "down" for backend in matching_backends
+      ):
+        backend_type = request.backend_type or "configured"
+        raise HTTPException(
+          status_code=503,
+          detail=f"Every TPU server of type '{backend_type}' is down",
+        )
+      if time.time() - start_queue_time > max_queue_time:
+        raise HTTPException(
+          status_code=408,
+          detail="Timed out waiting for an available backend in queue",
         )
 
-        if response.status != 200:
-          if response.status == 408:
-            raise HTTPException(
-              status_code=408,
-              detail=f"Backend evaluation timed out. Timeout was set to {backend_timeout} seconds.",
-            )
-          raise HTTPException(
-            status_code=response.status,
-            detail=result.get("detail", "Backend evaluation failed"),
+      async with backend_semaphore:
+        backend = evaluator.get_available_backend(
+          backend_type=request.backend_type
+        )
+        if backend:
+          backend.set_status("busy")
+          backend_ip = backend.ip
+          backend_port = backend.port
+          backend_name = backend.name
+          backend_type = backend.backend_type
+          break
+      await asyncio.sleep(0.1)
+
+    try:
+      requested_type_msg = (
+        f" (requested: {request.backend_type})" if request.backend_type else ""
+      )
+      logging.info(
+        f"Starting evaluation on {backend_type} backend '{backend_name}' "
+        f"({backend_ip}:{backend_port}) for {request.eval_type.value}"
+        f"{requested_type_msg}"
+      )
+
+      payload = {
+        "eval_type": request.eval_type.value,
+        "timeout": request.timeout,
+      }
+      if request.eval_type == EvalTypes.AUTOTUNE:
+        payload["code_template"] = request.code_template
+        payload["search_space"] = request.search_space
+        backend_timeout = request.total_timeout
+        payload["total_timeout"] = request.total_timeout
+        payload["dependencies"] = request.dependencies
+      else:
+        payload["code"] = request.code
+        payload["dependencies"] = request.dependencies
+        backend_timeout = request.timeout
+
+      client_timeout = aiohttp.ClientTimeout(total=backend_timeout + 10)
+      async with aiohttp.ClientSession(timeout=client_timeout) as session:
+        async with session.post(
+          f"http://{backend_ip}:{backend_port}/{request.eval_type.value}",
+          json=payload,
+        ) as response:
+          result = await response.json()
+          logging.info(
+            f"Received response from {backend_name}: {response.status}"
           )
 
-    # Mark backend as available after evaluation
-    logging.info(
-      f"Evaluation completed on {backend_name}, marking as available"
-    )
-    return result
+          if response.status != 200:
+            if response.status == 408:
+              raise HTTPException(
+                status_code=408,
+                detail=f"Backend evaluation timed out. Timeout was set to {backend_timeout} seconds.",
+              )
+            raise HTTPException(
+              status_code=response.status,
+              detail=result.get("detail", "Backend evaluation failed"),
+            )
 
-  except HTTPException as e:
-    logging.info(f"HTTPException occurred during evaluation: {e.detail}")
-    raise e
-  except Exception as e:
-    logging.error(f"Error occurred while evaluating on {backend_name}: {e}")
-    raise HTTPException(
-      status_code=500, detail=f"Backend evaluation failed: {e}"
-    )
-  finally:
-    backend.set_status("available")
+      logging.info(
+        f"Evaluation completed on {backend_name}, marking as available"
+      )
+      return result
+
+    except aiohttp.ClientConnectorError as e:
+      logging.error(f"Connection to backend {backend_name} failed: {e}")
+      backend.set_status("down")
+    except HTTPException as e:
+      logging.info(f"HTTPException occurred during evaluation: {e.detail}")
+      raise e
+    except Exception as e:
+      logging.error(f"Error occurred while evaluating on {backend_name}: {e}")
+      raise HTTPException(
+        status_code=500,
+        detail=f"Backend evaluation failed: {type(e).__name__}: {e}",
+      )
+    finally:
+      if backend.get_status() == "busy":
+        backend.set_status("available")
 
 
 if __name__ == "__main__":

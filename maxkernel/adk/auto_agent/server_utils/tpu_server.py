@@ -353,8 +353,14 @@ async def autotune(request: AutotuneRequest):
             cwd=temp_dir,
           )
 
+          config_timeout = request.timeout
+          if request.total_timeout:
+            config_timeout = min(
+              config_timeout,
+              request.total_timeout - (time.time() - start_time),
+            )
           stdout, stderr = await asyncio.wait_for(
-            process.communicate(), timeout=request.timeout
+            process.communicate(), timeout=config_timeout
           )
 
           output = stdout.decode("utf-8") if stdout else ""
