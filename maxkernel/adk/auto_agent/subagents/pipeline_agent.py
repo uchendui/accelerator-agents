@@ -75,9 +75,24 @@ class AutonomousPipelineAgent(BaseAgent):
   async def _run_async_impl(
     self, ctx: InvocationContext
   ) -> AsyncGenerator[Event, None]:
-    iteration = 0
-
     yield self._initialize_state(ctx)
+
+    iteration = len(ctx.session.state.get("history", []))
+    if iteration > 0:
+      for path_key in [
+        "kernel_plan_path",
+        "optimized_kernel_path",
+        "autotune_specs_path",
+        "autotune_results_path",
+      ]:
+        path = ctx.session.state[path_key]
+        directory, filename = os.path.split(path)
+        name, ext = os.path.splitext(filename)
+        snapshot_path = os.path.join(
+          directory, f"{name}_{iteration - 1}{ext}"
+        )
+        if os.path.exists(snapshot_path):
+          shutil.copy2(snapshot_path, path)
 
     try:
       base_kernel_path = ctx.session.state["base_kernel_path"]
@@ -92,11 +107,18 @@ class AutonomousPipelineAgent(BaseAgent):
         async for event in self.prepare_base_kernel_agent.run_async(ctx):
           yield event
 
-      logging.info(
-        f"[{self.name}] Running ValidatedTestGenerationAgent (once)..."
-      )
-      async for event in self.test_gen_agent.run_async(ctx):
-        yield event
+      validation_status = ctx.session.state.get("validation_loop_status", {})
+      test_file_path = ctx.session.state["test_file_path"]
+      if validation_status.get("success") and os.path.exists(test_file_path):
+        logging.info(
+          f"[{self.name}] Initial test validation exists, skipping test generation"
+        )
+      else:
+        logging.info(
+          f"[{self.name}] Running ValidatedTestGenerationAgent (once)..."
+        )
+        async for event in self.test_gen_agent.run_async(ctx):
+          yield event
 
       validation_status = ctx.session.state.get("validation_loop_status", {})
       if not validation_status.get("success", False):
@@ -422,7 +444,8 @@ class AutonomousPipelineAgent(BaseAgent):
         "overall_pipeline_time": 0,
         "iterations": {},
       }
-    ctx.session.state["pipeline_start_time"] = time.time()
+    if "pipeline_start_time" not in ctx.session.state:
+      ctx.session.state["pipeline_start_time"] = time.time()
     """Initializes session state with standard paths and returns the event."""
     # Initialize history
     if "history" not in ctx.session.state:
