@@ -59,36 +59,40 @@ class NodeFilesystemTool(BaseTool):
 
   async def run_async(self, *, args, tool_context):
     root = Path(tool_context.state.get("workdir") or WORKDIR).resolve()
-    target = Path(os.path.expanduser(args.get("path", ""))).resolve()
-    if not target.is_relative_to(root):
+
+    def access_denied(text):
       return {
-        "content": [{
-          "type": "text",
-          "text": (
-            "Access denied because the path is outside the node's folder "
-            f"{root}."
-          ),
-        }],
+        "content": [{"type": "text", "text": text}],
         "isError": True,
       }
+
+    path = args.get("path") or ""
+    target = Path(os.path.expanduser(path)).resolve()
+    if not path.strip() or not target.is_relative_to(root):
+      return access_denied(
+        "Access denied because the path is outside the node's folder "
+        f"{root}."
+      )
     if target.name in HARNESS_FILES:
-      return {
-        "content": [{
-          "type": "text",
-          "text": "Access denied because the path is a harness file.",
-        }],
-        "isError": True,
-      }
+      return access_denied("Access denied because the path is a harness file.")
 
     result = await self._inner.run_async(args=args, tool_context=tool_context)
     if self.name == "list_directory":
       harness_entries = {f"[FILE] {name}" for name in HARNESS_FILES}
+
+      def remove_harness_files(text):
+        return "\n".join(
+          line for line in text.splitlines() if line not in harness_entries
+        )
+
       for content in result.get("content", []):
         if content.get("type") == "text":
-          content["text"] = "".join(
-            line for line in content["text"].splitlines(keepends=True)
-            if line.rstrip("\r\n") not in harness_entries
-          )
+          content["text"] = remove_harness_files(content["text"])
+      structured_content = result.get("structuredContent")
+      if structured_content and "content" in structured_content:
+        structured_content["content"] = remove_harness_files(
+          structured_content["content"]
+        )
     return result
 
 
