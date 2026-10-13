@@ -18,6 +18,23 @@ from auto_agent.config import TPU_VERSION, WORKDIR
 from auto_agent.knowledge_base import pallas_docs, pallas_profiling_docs
 
 
+ITERATION_ARTIFACT_KEYS = [
+  "kernel_plan_path",
+  "optimized_kernel_path",
+  "autotune_specs_path",
+  "autotune_results_path",
+]
+STEP_TO_LAST_ARTIFACT_KEY = {
+  "plan": "kernel_plan_path",
+  "implement": "optimized_kernel_path",
+  "validate": "optimized_kernel_path",
+  "test_run": "optimized_kernel_path",
+  "autotune": "autotune_results_path",
+  "profile": "autotune_results_path",
+}
+PIPELINE_STEPS = ["plan", "implement", "validate", "test_run", "autotune"]
+
+
 class AutonomousPipelineAgent(BaseAgent):
   """Chains kernel generation sub-agents automatically with an improvement loop."""
 
@@ -78,15 +95,18 @@ class AutonomousPipelineAgent(BaseAgent):
     yield self._initialize_state(ctx)
 
     iteration = len(ctx.session.state.get("history", []))
+    resume_after = ctx.session.state.get("completed_step")
+    first_iteration = iteration
     # A restored session holds iterations 0..iteration-1, so iteration-1's
     # snapshots are what the next iteration would have read.
     if iteration > 0:
-      for path_key in [
-        "kernel_plan_path",
-        "optimized_kernel_path",
-        "autotune_specs_path",
-        "autotune_results_path",
-      ]:
+      keys_to_restore = ITERATION_ARTIFACT_KEYS
+      if resume_after in STEP_TO_LAST_ARTIFACT_KEY:
+        last_key = STEP_TO_LAST_ARTIFACT_KEY[resume_after]
+        keys_to_restore = ITERATION_ARTIFACT_KEYS[
+          ITERATION_ARTIFACT_KEYS.index(last_key) + 1 :
+        ]
+      for path_key in keys_to_restore:
         path = ctx.session.state[path_key]
         directory, filename = os.path.split(path)
         name, ext = os.path.splitext(filename)
@@ -150,90 +170,120 @@ class AutonomousPipelineAgent(BaseAgent):
           f"[{self.name}] Starting pipeline iteration {iteration + 1}/{self.max_iterations}"
         )
 
+        # A session resumed mid-iteration skips the steps its last checkpoint completed, in that iteration only.
+        skip_through = -1
+        if iteration == first_iteration and resume_after in PIPELINE_STEPS:
+          skip_through = PIPELINE_STEPS.index(resume_after)
+
         # Step 1: Plan
-        logging.info(f"[{self.name}] Running PlanKernelAgent...")
-        async for event in self.plan_agent.run_async(ctx):
-          yield event
+        if skip_through < 0:
+          logging.info(f"[{self.name}] Running PlanKernelAgent...")
+          async for event in self.plan_agent.run_async(ctx):
+            yield event
 
-        self._clear_iteration_metrics(ctx)
+          self._clear_iteration_metrics(ctx)
 
-        if self._should_end_at_step(ctx, iteration, "plan"):
-          yield self._create_history_event(ctx)
-          self._update_timing_metrics(ctx, iteration)
-          iteration += 1
-          continue
+          if self._should_end_at_step(ctx, iteration, "plan"):
+            yield self._create_history_event(ctx)
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
+          yield Event(
+            author=self.name,
+            actions=EventActions(state_delta={"completed_step": "plan"}),
+          )
 
         # Step 2: Implement
-        logging.info(f"[{self.name}] Running ImplementKernelAgent...")
-        async for event in self.implement_agent.run_async(ctx):
-          yield event
-        if self._should_end_at_step(ctx, iteration, "implement"):
-          yield self._create_history_event(ctx)
-          self._update_timing_metrics(ctx, iteration)
-          iteration += 1
-          continue
+        if skip_through < 1:
+          logging.info(f"[{self.name}] Running ImplementKernelAgent...")
+          async for event in self.implement_agent.run_async(ctx):
+            yield event
+          if self._should_end_at_step(ctx, iteration, "implement"):
+            yield self._create_history_event(ctx)
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
+          yield Event(
+            author=self.name,
+            actions=EventActions(state_delta={"completed_step": "implement"}),
+          )
 
         # Step 3: Validate
-        logging.info(f"[{self.name}] Running ValidateKernelCompilationAgent...")
-        async for event in self.validate_agent.run_async(ctx):
-          yield event
+        if skip_through < 2:
+          logging.info(f"[{self.name}] Running ValidateKernelCompilationAgent...")
+          async for event in self.validate_agent.run_async(ctx):
+            yield event
 
-        # Check if compilation succeeded
-        compilation_status = ctx.session.state.get(
-          "kernel_compilation_status", {}
-        )
-        if not compilation_status.get("success", False):
-          logging.error(
-            f"[{self.name}] Compilation failed. Looping back to planning."
+          # Check if compilation succeeded
+          compilation_status = ctx.session.state.get(
+            "kernel_compilation_status", {}
           )
-          self._save_iteration_files_and_snapshot(
-            ctx, iteration, step_name="validate"
-          )
-          yield self._create_history_event(ctx)
-          self._update_timing_metrics(ctx, iteration)
-          iteration += 1
-          continue
+          if not compilation_status.get("success", False):
+            logging.error(
+              f"[{self.name}] Compilation failed. Looping back to planning."
+            )
+            self._save_iteration_files_and_snapshot(
+              ctx, iteration, step_name="validate"
+            )
+            yield self._create_history_event(ctx)
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
 
-        if self._should_end_at_step(ctx, iteration, "validate"):
-          yield self._create_history_event(ctx)
-          self._update_timing_metrics(ctx, iteration)
-          iteration += 1
-          continue
+          if self._should_end_at_step(ctx, iteration, "validate"):
+            yield self._create_history_event(ctx)
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
+          yield Event(
+            author=self.name,
+            actions=EventActions(state_delta={"completed_step": "validate"}),
+          )
 
         # Step 4: Test Run
-        logging.info(f"[{self.name}] Running UnifiedTestAgent...")
-        async for event in self.test_run_agent.run_async(ctx):
-          yield event
+        if skip_through < 3:
+          logging.info(f"[{self.name}] Running UnifiedTestAgent...")
+          async for event in self.test_run_agent.run_async(ctx):
+            yield event
 
-        # Check if tests passed
-        test_results = ctx.session.state.get("test_results", {})
-        if not test_results.get("success", False):
-          logging.error(
-            f"[{self.name}] Tests failed. Looping back to planning."
-          )
-          self._save_iteration_files_and_snapshot(
-            ctx, iteration, step_name="test_run"
-          )
-          yield self._create_history_event(ctx)
-          self._update_timing_metrics(ctx, iteration)
-          iteration += 1
-          continue
+          # Check if tests passed
+          test_results = ctx.session.state.get("test_results", {})
+          if not test_results.get("success", False):
+            logging.error(
+              f"[{self.name}] Tests failed. Looping back to planning."
+            )
+            self._save_iteration_files_and_snapshot(
+              ctx, iteration, step_name="test_run"
+            )
+            yield self._create_history_event(ctx)
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
 
-        if self._should_end_at_step(ctx, iteration, "test_run"):
-          yield self._create_history_event(ctx)
-          self._update_timing_metrics(ctx, iteration)
-          iteration += 1
-          continue
+          if self._should_end_at_step(ctx, iteration, "test_run"):
+            yield self._create_history_event(ctx)
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
+          yield Event(
+            author=self.name,
+            actions=EventActions(state_delta={"completed_step": "test_run"}),
+          )
 
         # Step 5: Autotune
-        logging.info(f"[{self.name}] Running AutotuneAgent...")
-        async for event in self.autotune_agent.run_async(ctx):
-          yield event
-        if self._should_end_at_step(ctx, iteration, "autotune"):
-          yield self._create_history_event(ctx)
-          self._update_timing_metrics(ctx, iteration)
-          iteration += 1
-          continue
+        if skip_through < 4:
+          logging.info(f"[{self.name}] Running AutotuneAgent...")
+          async for event in self.autotune_agent.run_async(ctx):
+            yield event
+          if self._should_end_at_step(ctx, iteration, "autotune"):
+            yield self._create_history_event(ctx)
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
+          yield Event(
+            author=self.name,
+            actions=EventActions(state_delta={"completed_step": "autotune"}),
+          )
 
         # Step 6: Profile
         logging.info(f"[{self.name}] Running ProfileAgentOrchestrator...")
@@ -316,7 +366,10 @@ class AutonomousPipelineAgent(BaseAgent):
     return Event(
       author=self.name,
       actions=EventActions(
-        state_delta={"history": ctx.session.state.get("history", [])}
+        state_delta={
+          "history": ctx.session.state.get("history", []),
+          "completed_step": None,
+        }
       ),
     )
 
@@ -376,25 +429,15 @@ class AutonomousPipelineAgent(BaseAgent):
     step_name: Optional[str] = None,
   ):
     """Saves artifacts with an iteration suffix."""
-    all_keys = [
-      "kernel_plan_path",
-      "optimized_kernel_path",
-      "autotune_specs_path",
-      "autotune_results_path",
-    ]
     if step_name is not None:
-      step_to_last_key = {
-        "plan": "kernel_plan_path",
-        "implement": "optimized_kernel_path",
-        "validate": "optimized_kernel_path",
-        "test_run": "optimized_kernel_path",
-        "autotune": "autotune_results_path",
-        "profile": "autotune_results_path",
-      }
-      last_key = step_to_last_key.get(step_name, "autotune_results_path")
-      keys_to_save = all_keys[: all_keys.index(last_key) + 1]
+      last_key = STEP_TO_LAST_ARTIFACT_KEY.get(
+        step_name, "autotune_results_path"
+      )
+      keys_to_save = ITERATION_ARTIFACT_KEYS[
+        : ITERATION_ARTIFACT_KEYS.index(last_key) + 1
+      ]
     else:
-      keys_to_save = all_keys
+      keys_to_save = ITERATION_ARTIFACT_KEYS
 
     for path_key in keys_to_save:
       path = ctx.session.state.get(path_key)

@@ -156,7 +156,9 @@ class AutoAgentClient:
       ):
         state_delta = event.actions and event.actions.state_delta
         if self.session_dir and state_delta and (
-          "history" in state_delta or "validation_loop_status" in state_delta
+          "history" in state_delta
+          or "validation_loop_status" in state_delta
+          or "completed_step" in state_delta
         ):
           await self.save_session()
       logger.info(
