@@ -1,6 +1,7 @@
 # Imports
 import argparse
 import difflib
+import functools
 import importlib
 import inspect
 import pkgutil
@@ -89,6 +90,10 @@ def discover_apis(api_prefix, recursive):
 def resolve_api(api_str):
   """Dynamically resolve an API object from its string name."""
   parts = api_str.split(".")
+  if parts[0] not in ("jax", "jaxlib") or "triton" in parts:
+    raise ImportError(
+      f"Only jax APIs are supported by search_api, got: {api_str}"
+    )
 
   # Try to find the longest valid module path
   module = None
@@ -171,6 +176,7 @@ def format_docstring_sections(doc):
   return description, param_strs, return_str, example_str
 
 
+@functools.lru_cache(maxsize=4096)
 def generate_definition(api_str):
   """
   Resolves a JAX API, parses its documentation, and returns the

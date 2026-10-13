@@ -30,7 +30,7 @@ Test file path: `{test_file_path?}`
 ## Tool Usage
 
 You have tools to help you:
-1.  **`search_api`**: For looking up specific API definitions and signatures when you need precise technical details about JAX, Pallas, or pytest APIs to fix validation errors.
+1.  **`search_api`**: For looking up specific API definitions and signatures when you need precise technical details about JAX or Pallas APIs to fix validation errors.
 2.  **`read_file`**: To read the test file and understand the current code.
 3.  **`restricted_write_file`**: To overwrite the test file with the corrected version.
 
