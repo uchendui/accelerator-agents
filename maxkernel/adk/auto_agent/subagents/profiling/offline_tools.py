@@ -2,7 +2,9 @@
 
 import gzip
 import json
+import os
 import sqlite3
+import stat
 import time
 from typing import Optional
 
@@ -21,6 +23,27 @@ RESULT_CHAR_LIMIT = 20_000
 NARROW_QUERY_MESSAGE = (
   "narrow the query with LIMIT, WHERE, GROUP BY, or aggregates."
 )
+
+
+def _load_xspace(xplane_path: str) -> xplane_pb2.XSpace:
+  """Loads an XSpace from a regular xplane file."""
+  # These tools run on the search's event loop, so reading a pipe such as
+  # /proc/self/fd/3 would block every search problem forever.
+  if not xplane_path.endswith((".xplane.pb", ".xplane.pb.gz")):
+    raise ValueError("xplane path must end with .xplane.pb or .xplane.pb.gz")
+  real_path = os.path.realpath(xplane_path)
+  if any(
+    real_path == root or real_path.startswith(f"{root}{os.sep}")
+    for root in ("/proc", "/dev", "/sys")
+  ):
+    raise ValueError("xplane path must not be under /proc, /dev, or /sys")
+  if not stat.S_ISREG(os.stat(real_path).st_mode):
+    raise ValueError("xplane path must be a regular file")
+  open_func = gzip.open if xplane_path.endswith(".gz") else open
+  with open_func(real_path, "rb") as f:
+    xspace = xplane_pb2.XSpace()
+    xspace.ParseFromString(f.read())
+  return xspace
 
 
 def _cap_string(value: str) -> str:
@@ -79,11 +102,7 @@ def load_xplane_and_query(xplane_path: str, sql_query: str) -> str:
       A markdown-formatted table of the query results.
   """
   try:
-    # Open file (handle gz if needed)
-    open_func = gzip.open if xplane_path.endswith(".gz") else open
-    with open_func(xplane_path, "rb") as f:
-      xspace = xplane_pb2.XSpace()
-      xspace.ParseFromString(f.read())
+    xspace = _load_xspace(xplane_path)
 
     conn = sqlite3.connect(":memory:")
     c = conn.cursor()
@@ -166,10 +185,7 @@ def get_hlo_dump(
       Status string indicating where HLO was saved or if not found.
   """
   try:
-    open_func = gzip.open if xplane_path.endswith(".gz") else open
-    with open_func(xplane_path, "rb") as f:
-      xspace = xplane_pb2.XSpace()
-      xspace.ParseFromString(f.read())
+    xspace = _load_xspace(xplane_path)
 
     saved_files = []
     for plane in xspace.planes:
@@ -211,13 +227,7 @@ def create_chart_from_xplane(
       title: Chart title.
   """
   try:
-    # Re-use loading logic (inefficient but stateless)
-    # TODO: we might want to cache the DB connection or pass it around.
-    # For simplicity here, we reload.
-    open_func = gzip.open if xplane_path.endswith(".gz") else open
-    with open_func(xplane_path, "rb") as f:
-      xspace = xplane_pb2.XSpace()
-      xspace.ParseFromString(f.read())
+    xspace = _load_xspace(xplane_path)
 
     conn = sqlite3.connect(":memory:")
     c = conn.cursor()
@@ -305,10 +315,7 @@ def get_overview_page_metrics(xplane_path: str) -> str:
       A JSON string containing metrics and metadata.
   """
   try:
-    open_func = gzip.open if xplane_path.endswith(".gz") else open
-    with open_func(xplane_path, "rb") as f:
-      xspace = xplane_pb2.XSpace()
-      xspace.ParseFromString(f.read())
+    xspace = _load_xspace(xplane_path)
 
     metrics = {}
 

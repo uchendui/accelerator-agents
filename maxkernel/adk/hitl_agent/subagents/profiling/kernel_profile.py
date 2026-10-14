@@ -86,7 +86,6 @@ class KernelProfiler(ServerManagerMixin, BaseAgent):
         ) as response:
           if response.status == 200:
             result = await response.json()
-            logging.info(f"[{self.name}] Profiling result: {result}")
 
             # Check if profiling was successful based on exit code and output
             exit_code = result.get("exit_code", 0)

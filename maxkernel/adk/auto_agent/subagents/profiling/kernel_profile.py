@@ -67,8 +67,6 @@ class KernelProfiler(BaseAgent):
           client_wait_timeout=REQUEST_TIMEOUT,
         )
 
-        logging.info(f"[{self.name}] Profiling result: {result}")
-
         # Check if profiling was successful based on exit code and output
         exit_code = result.get("exit_code", 0)
         output = result.get("output", "")
