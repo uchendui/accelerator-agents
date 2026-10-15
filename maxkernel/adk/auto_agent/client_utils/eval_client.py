@@ -87,6 +87,8 @@ async def call_eval_server_async(
         raise Exception(
           f"Task {task_id} ended with status {status}: {status_data.get('error')}"
         )
+      elif status == "queued":
+        running_since = None
       elif status == "running":
         if running_since is None:
           running_since = time.time()

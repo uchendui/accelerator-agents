@@ -286,9 +286,8 @@ async def get_task_status(task_id: str):
 
 
 async def run_evaluation_task(task_id: str, request: EvalRequest):
-  _tasks[task_id]["status"] = TaskStatus.RUNNING
   try:
-    result = await _perform_evaluation(request)
+    result = await _perform_evaluation(task_id, request)
     _tasks[task_id]["status"] = TaskStatus.SUCCESS
     _tasks[task_id]["result"] = result
   except HTTPException as e:
@@ -304,7 +303,7 @@ async def run_evaluation_task(task_id: str, request: EvalRequest):
     _tasks[task_id]["completed_at"] = time.time()
 
 
-async def _perform_evaluation(request: EvalRequest):
+async def _perform_evaluation(task_id: str, request: EvalRequest):
   if request.eval_type not in EvalTypes:
     raise HTTPException(status_code=400, detail="Invalid evaluation type")
 
@@ -343,6 +342,7 @@ async def _perform_evaluation(request: EvalRequest):
         )
         if backend:
           backend.set_status("busy")
+          _tasks[task_id]["status"] = TaskStatus.RUNNING
           backend_ip = backend.ip
           backend_port = backend.port
           backend_name = backend.name
@@ -407,6 +407,7 @@ async def _perform_evaluation(request: EvalRequest):
     except aiohttp.ClientConnectorError as e:
       logging.error(f"Connection to backend {backend_name} failed: {e}")
       backend.set_status("down")
+      _tasks[task_id]["status"] = TaskStatus.QUEUED
     except HTTPException as e:
       logging.info(f"HTTPException occurred during evaluation: {e.detail}")
       raise e
