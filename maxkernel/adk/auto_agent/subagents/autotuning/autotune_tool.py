@@ -10,7 +10,9 @@ from auto_agent.client_utils.eval_client import call_eval_server_async
 from auto_agent.constants import EVAL_SERVER_PORT, REQUEST_TIMEOUT
 
 AUTOTUNE_INDIVIDUAL_TIMEOUT = 300
-AUTOTUNE_TOTAL_TIMEOUT = 5400
+# Normal autotune runs take 35-443 s, so 900 s leaves room for a slow search
+# and ends a job whose TPU server never answers.
+AUTOTUNE_TOTAL_TIMEOUT = 900
 AUTOTUNE_POLL_INTERVAL = 30
 
 

@@ -70,6 +70,8 @@ app = FastAPI(
 )
 
 backend_semaphore = asyncio.Semaphore(1)
+# Seconds a backend gets beyond the job's own timeout to send its answer.
+BACKEND_GRACE = 10
 
 
 class Backend:
@@ -373,7 +375,9 @@ async def _perform_evaluation(request: EvalRequest):
         payload["dependencies"] = request.dependencies
         backend_timeout = request.timeout
 
-      client_timeout = aiohttp.ClientTimeout(total=backend_timeout + 10)
+      client_timeout = aiohttp.ClientTimeout(
+        total=backend_timeout + BACKEND_GRACE
+      )
       async with aiohttp.ClientSession(timeout=client_timeout) as session:
         async with session.post(
           f"http://{backend_ip}:{backend_port}/{request.eval_type.value}",

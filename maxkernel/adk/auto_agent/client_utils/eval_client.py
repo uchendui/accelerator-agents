@@ -11,6 +11,10 @@ class TaskTimeoutError(Exception):
   pass
 
 
+# Covers eval_server's answer grace plus one 30 s poll.
+RUNNING_GRACE = 60
+
+
 async def call_eval_server_async(
   session: aiohttp.ClientSession,
   eval_server_url: str,
@@ -50,6 +54,10 @@ async def call_eval_server_async(
 
   # 2. Poll for status
   start_time = time.time()
+  running_deadline = (
+    payload.get("total_timeout") or payload["timeout"]
+  ) + RUNNING_GRACE
+  running_since = None
   status_url = f"{eval_server_url}/status/{task_id}"
 
   while True:
@@ -79,6 +87,13 @@ async def call_eval_server_async(
         raise Exception(
           f"Task {task_id} ended with status {status}: {status_data.get('error')}"
         )
+      elif status == "running":
+        if running_since is None:
+          running_since = time.time()
+        elif time.time() - running_since > running_deadline:
+          raise Exception(
+            f"Task {task_id} stayed running for {running_deadline} seconds"
+          )
 
       logging.info(
         f"Task {task_id} status: {status}. Waiting {poll_interval}s..."
