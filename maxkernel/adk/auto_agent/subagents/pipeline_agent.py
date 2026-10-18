@@ -194,10 +194,10 @@ class AutonomousPipelineAgent(BaseAgent):
         # Step 1: Plan
         if skip_through < 0:
           logging.info(f"[{self.name}] Running PlanKernelAgent...")
-          plan_mtime = self._mtime(ctx, "kernel_plan_path")
+          plan_stamp = self._file_stamp(ctx, "kernel_plan_path")
           async for event in self.plan_agent.run_async(ctx):
             yield event
-          if self._mtime(ctx, "kernel_plan_path") == plan_mtime:
+          if self._file_stamp(ctx, "kernel_plan_path") == plan_stamp:
             yield self._fail_unwritten_iteration(
               ctx, iteration, "kernel_plan_path"
             )
@@ -221,10 +221,10 @@ class AutonomousPipelineAgent(BaseAgent):
         # Step 2: Implement
         if skip_through < 1:
           logging.info(f"[{self.name}] Running ImplementKernelAgent...")
-          kernel_mtime = self._mtime(ctx, "optimized_kernel_path")
+          kernel_stamp = self._file_stamp(ctx, "optimized_kernel_path")
           async for event in self.implement_agent.run_async(ctx):
             yield event
-          if self._mtime(ctx, "optimized_kernel_path") == kernel_mtime:
+          if self._file_stamp(ctx, "optimized_kernel_path") == kernel_stamp:
             yield self._fail_unwritten_iteration(
               ctx, iteration, "optimized_kernel_path"
             )
@@ -421,9 +421,19 @@ class AutonomousPipelineAgent(BaseAgent):
     return False
 
   @staticmethod
-  def _mtime(ctx: InvocationContext, path_key: str) -> Optional[int]:
+  def _file_stamp(
+    ctx: InvocationContext, path_key: str
+  ) -> Optional[tuple[int, bytes]]:
+    """The file's mtime and content, which change when an agent writes it.
+
+    The content catches a write in the same coarse clock tick as the last
+    one, which leaves the mtime unchanged.
+    """
     path = ctx.session.state.get(path_key)
-    return os.stat(path).st_mtime_ns if os.path.exists(path) else None
+    if not os.path.exists(path):
+      return None
+    with open(path, "rb") as f:
+      return os.stat(path).st_mtime_ns, f.read()
 
   def _fail_unwritten_iteration(
     self, ctx: InvocationContext, iteration: int, path_key: str
