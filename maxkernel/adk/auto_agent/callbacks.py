@@ -401,17 +401,24 @@ def add_pallas_docs(callback_context: CallbackContext):
   callback_context.state["pallas_profiling_docs"] = pallas_profiling_docs.PROMPT
 
 
+def _is_raw_tool_part(p) -> bool:
+  """Checks if a Part represents a raw tool call or response."""
+  if getattr(p, "function_call", None) or getattr(p, "functionCall", None):
+    return True
+  if getattr(p, "function_response", None) or getattr(
+    p, "functionResponse", None
+  ):
+    return True
+  return False
+
+
 def _is_tool_part(p) -> bool:
   """Checks if a Part represents a tool call or response.
 
   Supports raw attributes (snake_case/camelCase) for self-history, and ADK
   serialized text logs (`] called tool ``) for upstream subagent history.
   """
-  if getattr(p, "function_call", None) or getattr(p, "functionCall", None):
-    return True
-  if getattr(p, "function_response", None) or getattr(
-    p, "functionResponse", None
-  ):
+  if _is_raw_tool_part(p):
     return True
 
   text_attr = getattr(p, "text", None)
@@ -437,13 +444,13 @@ def prune_intermediate_tool_history(
 
   contents = llm_request.contents
 
-  # Find where the trailing tool-calling sequence (if any) starts at the end
-  # of contents
+  # Find where the trailing raw tool-calling sequence (if any) starts at the
+  # end of contents
   trailing_idx = len(contents)
   while trailing_idx > 0:
     last_content = contents[trailing_idx - 1]
     parts = getattr(last_content, "parts", None) or []
-    if any(_is_tool_part(p) for p in parts):
+    if any(_is_raw_tool_part(p) for p in parts):
       trailing_idx -= 1
     else:
       break
@@ -454,8 +461,29 @@ def prune_intermediate_tool_history(
   filtered_history = []
   for c in history_contents:
     parts = getattr(c, "parts", None) or []
-    # Remove tool call/response parts (both raw attributes and serialized logs)
-    new_parts = [p for p in parts if not _is_tool_part(p)]
+    # Remove thought parts and tool call/response parts
+    new_parts = [
+      p
+      for p in parts
+      if not getattr(p, "thought", False) and not _is_tool_part(p)
+    ]
+    # A past model turn that keeps its text but loses its tool calls teaches
+    # the model to answer without calling tools, so its text becomes context,
+    # the way ADK shows another agent's turn.
+    if c.role == "model":
+      text_parts = [
+        types.Part(text=f"[{callback_context.agent_name}] said: {p.text}")
+        for p in new_parts
+        if (getattr(p, "text", None) or "").strip()
+      ]
+      if text_parts:
+        filtered_history.append(
+          types.Content(
+            role="user",
+            parts=[types.Part(text="For context:")] + text_parts,
+          )
+        )
+      continue
     # Keep the turn if there is at least one meaningful part remaining
     # (not just an orphaned 'For context:' header left after removing tool logs)
     if any(

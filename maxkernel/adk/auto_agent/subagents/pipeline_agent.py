@@ -194,8 +194,16 @@ class AutonomousPipelineAgent(BaseAgent):
         # Step 1: Plan
         if skip_through < 0:
           logging.info(f"[{self.name}] Running PlanKernelAgent...")
+          plan_mtime = self._mtime(ctx, "kernel_plan_path")
           async for event in self.plan_agent.run_async(ctx):
             yield event
+          if self._mtime(ctx, "kernel_plan_path") == plan_mtime:
+            yield self._fail_unwritten_iteration(
+              ctx, iteration, "kernel_plan_path"
+            )
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
 
         self._clear_iteration_metrics(ctx, skip_through)
 
@@ -213,8 +221,16 @@ class AutonomousPipelineAgent(BaseAgent):
         # Step 2: Implement
         if skip_through < 1:
           logging.info(f"[{self.name}] Running ImplementKernelAgent...")
+          kernel_mtime = self._mtime(ctx, "optimized_kernel_path")
           async for event in self.implement_agent.run_async(ctx):
             yield event
+          if self._mtime(ctx, "optimized_kernel_path") == kernel_mtime:
+            yield self._fail_unwritten_iteration(
+              ctx, iteration, "optimized_kernel_path"
+            )
+            self._update_timing_metrics(ctx, iteration)
+            iteration += 1
+            continue
           if self._should_end_at_step(ctx, iteration, "implement"):
             yield self._create_history_event(ctx)
             self._update_timing_metrics(ctx, iteration)
@@ -403,6 +419,46 @@ class AutonomousPipelineAgent(BaseAgent):
       )
       return True
     return False
+
+  @staticmethod
+  def _mtime(ctx: InvocationContext, path_key: str) -> Optional[int]:
+    path = ctx.session.state.get(path_key)
+    return os.stat(path).st_mtime_ns if os.path.exists(path) else None
+
+  def _fail_unwritten_iteration(
+    self, ctx: InvocationContext, iteration: int, path_key: str
+  ) -> Event:
+    """Records an iteration whose agent did not write its file as failed.
+
+    The later steps would otherwise compile, test, and time the last
+    iteration's file as this iteration's work. The last iteration's files go
+    back on disk, and are saved as this iteration's, for the next iteration.
+    """
+    logging.warning(
+      f"[{self.name}] Iteration {iteration} did not write {path_key}."
+    )
+    if iteration > 0:
+      for key in ITERATION_ARTIFACT_KEYS:
+        name, ext = os.path.splitext(ctx.session.state[key])
+        previous = f"{name}_{iteration - 1}{ext}"
+        if os.path.exists(previous):
+          shutil.copy2(previous, ctx.session.state[key])
+    ctx.session.state["history"] = ctx.session.state.get("history", []) + [
+      {
+        "iteration": iteration,
+        "kernel_code": "",
+        "compilation_status": {
+          "success": False,
+          "error": f"{path_key} was not written in this iteration",
+        },
+        "test_status": {},
+        "speedup": None,
+        "autotuning_summary": "",
+        "profiling_summary": "",
+      }
+    ]
+    self._save_iteration_files_and_snapshot(ctx, iteration)
+    return self._create_history_event(ctx)
 
   def _record_history_snapshot(self, ctx: InvocationContext, iteration: int):
     """Records the iteration snapshot into the session history."""
