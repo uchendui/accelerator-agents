@@ -447,12 +447,15 @@ class AutonomousPipelineAgent(BaseAgent):
     logging.warning(
       f"[{self.name}] Iteration {iteration} did not write {path_key}."
     )
-    if iteration > 0:
-      for key in ITERATION_ARTIFACT_KEYS:
-        name, ext = os.path.splitext(ctx.session.state[key])
-        previous = f"{name}_{iteration - 1}{ext}"
-        if os.path.exists(previous):
-          shutil.copy2(previous, ctx.session.state[key])
+    for key in ITERATION_ARTIFACT_KEYS:
+      path = ctx.session.state[key]
+      name, ext = os.path.splitext(path)
+      previous = f"{name}_{iteration - 1}{ext}"
+      if iteration > 0 and os.path.exists(previous):
+        shutil.copy2(previous, path)
+      elif os.path.exists(path):
+        # The last iteration left no such file, so this iteration wrote it.
+        os.remove(path)
     ctx.session.state["history"] = ctx.session.state.get("history", []) + [
       {
         "iteration": iteration,
