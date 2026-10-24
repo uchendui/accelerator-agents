@@ -29,13 +29,16 @@ async def lifespan(app: FastAPI):
   cleanup_task = asyncio.create_task(
     clean_old_tasks_periodically(ttl_seconds=1800, check_interval_seconds=60)
   )
+  reload_task = asyncio.create_task(reload_backends_periodically())
   yield
-  # Clean up background task on shutdown
-  cleanup_task.cancel()
-  try:
-    await cleanup_task
-  except asyncio.CancelledError:
-    pass
+  # Clean up background tasks on shutdown
+  for task in (cleanup_task, reload_task):
+    task.cancel()
+  for task in (cleanup_task, reload_task):
+    try:
+      await task
+    except asyncio.CancelledError:
+      pass
   logging.info("Shutting down eval_server, cleaning up tunnels...")
   evaluator._cleanup_tunnels()
 
@@ -72,6 +75,20 @@ app = FastAPI(
 backend_semaphore = asyncio.Semaphore(1)
 # Seconds a backend gets beyond the job's own timeout to send its answer.
 BACKEND_GRACE = 10
+# Seconds between re-reads of the config, which the GKE hub rewrites as TPU server pods join and leave.
+BACKENDS_RELOAD_SECONDS = 30
+
+
+async def reload_backends_periodically(interval_seconds=BACKENDS_RELOAD_SECONDS):
+  while True:
+    try:
+      await asyncio.sleep(interval_seconds)
+      # Backend() asks a new backend for its TPU version over HTTP, so the reload runs off the loop.
+      await asyncio.to_thread(evaluator.reload)
+    except asyncio.CancelledError:
+      break
+    except Exception as e:
+      logging.error(f"Error reloading backends: {e}")
 
 
 class Backend:
@@ -158,6 +175,7 @@ _tasks = {}
 
 class Evaluator:
   def __init__(self, cfg_path="eval_config.yaml"):
+    self.cfg_path = cfg_path
     with open(cfg_path, "r") as file:
       self.config = yaml.safe_load(file)
 
@@ -192,6 +210,32 @@ class Evaluator:
       raise ValueError(
         "No backends configured in eval_config.yaml. Please use the 'backends' format."
       )
+
+  def reload(self):
+    """Applies the config's current backend list: a loaded backend keeps its object and status, a new one is
+    created with its tunnel, and one that left the list is dropped (a task running on it still finishes)."""
+    with open(self.cfg_path, "r") as file:
+      config = yaml.safe_load(file) or {}
+    loaded = {
+      (backend.name, backend.ip, backend.port, backend.backend_type): backend
+      for backend in self.backends
+    }
+    backends = []
+    for backend_config in config.get("backends") or []:
+      key = (
+        backend_config["name"], backend_config["ip"], backend_config["port"],
+        backend_config.get("type", "tpu"),
+      )
+      backend = loaded.pop(key, None)
+      if backend is None:
+        self._create_tunnel(backend_config)
+        backend = Backend(*key)
+        logging.info(f"Added backend {backend.name}")
+      backends.append(backend)
+    for backend in loaded.values():
+      logging.info(f"Removed backend {backend.name}")
+    self.backends = backends
+    self.config = config
 
   def _create_tunnel(self, backend_config):
     if "tpu_vm" in backend_config:
@@ -376,7 +420,7 @@ async def _perform_evaluation(task_id: str, request: EvalRequest):
         backend_timeout = request.timeout
 
       client_timeout = aiohttp.ClientTimeout(
-        total=backend_timeout + BACKEND_GRACE
+        total=backend_timeout + BACKEND_GRACE, sock_connect=30
       )
       async with aiohttp.ClientSession(timeout=client_timeout) as session:
         async with session.post(
@@ -404,7 +448,7 @@ async def _perform_evaluation(task_id: str, request: EvalRequest):
       )
       return result
 
-    except aiohttp.ClientConnectorError as e:
+    except aiohttp.ClientConnectionError as e:
       logging.error(f"Connection to backend {backend_name} failed: {e}")
       backend.set_status("down")
       _tasks[task_id]["status"] = TaskStatus.QUEUED
