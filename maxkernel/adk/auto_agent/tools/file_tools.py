@@ -122,12 +122,8 @@ class NodeFilesystemTool(BaseTool):
       for content in result.get("content", []):
         if content.get("type") == "text":
           content["text"] = filter_directory_listing(content["text"])
-      structured_content = result.get("structuredContent")
-      if structured_content and "content" in structured_content:
-        structured_content["content"] = filter_directory_listing(
-          structured_content["content"]
-        )
-    return result
+    # The MCP server returns the text twice, as content and as structuredContent; the model gets it once.
+    return {key: result[key] for key in ("content", "isError") if key in result}
 
 
 class SearchToolset(BaseToolset):
