@@ -1,6 +1,9 @@
 import asyncio
 import atexit
+import json
 import logging
+import os
+import re
 import subprocess
 import time
 import uuid
@@ -15,6 +18,10 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from auto_agent.constants import EVAL_SERVER_PORT, REQUEST_TIMEOUT
+
+# jax device kinds of the TPU generation this hub evaluates for, keyed by the TPU_VERSION the launchers set
+DEVICE_KINDS = {"TPU v5e": "TPU v5 lite", "TPU v6e": "TPU v6 lite"}
+EXPECTED_DEVICE_KIND = DEVICE_KINDS[os.environ["TPU_VERSION"]]
 
 logging.basicConfig(
   level=logging.INFO,
@@ -106,10 +113,13 @@ class Backend:
         resp = requests.post(url, timeout=10)
         if resp.status_code == 200:
           data = resp.json()
-          if isinstance(data, dict):
-            self.version = data.get("tpu_version", "TPU version not found")
+          version = data.get("tpu_version") if isinstance(data, dict) else None
+          if version is None or version == "TPU version not found":
+            logging.warning(f"Failed to get TPU version from {url}: {version}")
+            self.version = None
+            self.status = "down"
           else:
-            self.version = str(data)
+            self.version = version
         else:
           logging.warning(f"Failed to get TPU version from {url}: HTTP {resp.status_code}")
           self.version = None
@@ -464,6 +474,26 @@ async def _perform_evaluation(task_id: str, request: EvalRequest):
               status_code=response.status,
               detail=result.get("detail", "Backend evaluation failed"),
             )
+
+      # A result that carries a timing must name the chip that produced it: a timing without the line gives {None}.
+      kinds = set()
+      if request.eval_type == EvalTypes.AUTOTUNE:
+        if result["exit_code"] == 0:
+          kinds = {
+            entry.get("device_kind")
+            for entry in json.loads(result["output"])["all_results"]
+            if entry.get("status") == "success"
+          }
+      elif re.search(r"RESULT_TIME:", result["output"] or ""):
+        kind_match = re.search(r"DEVICE_KIND:\s*(.+)", result["output"])
+        kinds = {kind_match.group(1).strip() if kind_match else None}
+      if kinds and kinds != {EXPECTED_DEVICE_KIND}:
+        logging.error(
+          f"Device kind mismatch for backend {backend_name}: expected {EXPECTED_DEVICE_KIND}, got {kinds}"
+        )
+        backend.set_status("down")
+        _tasks[task_id]["status"] = TaskStatus.QUEUED
+        continue
 
       logging.info(
         f"Evaluation completed on {backend_name}, marking as available"

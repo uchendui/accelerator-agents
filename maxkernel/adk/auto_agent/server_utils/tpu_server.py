@@ -314,6 +314,7 @@ async def autotune(request: AutotuneRequest):
       combinations = list(itertools.product(*values))
 
       best_time = float("inf")
+      best_device_kind = None
       best_speedup = float("-inf")
       best_cfg = None
       best_output = ""
@@ -378,6 +379,8 @@ async def autotune(request: AutotuneRequest):
               r"SPEEDUP:\s*([0-9.]+)", output, re.IGNORECASE
             )
 
+            kind_match = re.search(r"DEVICE_KIND:\s*(.+)", output)
+
             correctness_passed = False
             if correctness_match:
               correctness_passed = correctness_match.group(1).lower() == "true"
@@ -408,6 +411,7 @@ async def autotune(request: AutotuneRequest):
                 "cfg": cfg,
                 "time": time_taken,
                 "status": "success",
+                "device_kind": kind_match.group(1).strip() if kind_match else None,
               }
               if speedup_achieved is not None:
                 result_entry["speedup"] = speedup_achieved
@@ -417,6 +421,7 @@ async def autotune(request: AutotuneRequest):
                 if time_taken is not None:
                   best_time = time_taken
                 best_cfg = cfg
+                best_device_kind = result_entry["device_kind"]
                 best_output = output
           else:
             logging.warning(
@@ -457,6 +462,7 @@ async def autotune(request: AutotuneRequest):
           {
             "best_cfg": best_cfg,
             "best_time": best_time,
+            "best_device_kind": best_device_kind,
             "best_speedup": best_speedup,
             "best_output": best_output,
             "all_results": all_results,

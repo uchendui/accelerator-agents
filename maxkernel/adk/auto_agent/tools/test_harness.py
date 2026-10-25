@@ -226,6 +226,7 @@ def main():
             geo_mean_time_opt = math.exp(sum(math.log(t) for t in valid_opt) / len(valid_opt))
             geo_mean_speedup = math.exp(sum(math.log(s) for s in valid_speedups) / len(valid_speedups))
 
+            print(f"DEVICE_KIND: {{jax.devices()[0].device_kind}}")
             print(f"RESULT_TIME: {{geo_mean_time_opt * 1000:.6f}} ms")
             print(f"SPEEDUP: {{geo_mean_speedup:.4f}}")
             print(f"PERF_METRICS: {{geo_mean_speedup:.4f}}")

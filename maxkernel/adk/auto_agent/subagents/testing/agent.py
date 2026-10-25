@@ -7,6 +7,7 @@ import ast
 import asyncio
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from typing import AsyncGenerator, Callable, Optional
@@ -185,10 +186,12 @@ class TestRunner(BaseAgent):
       )
       full_output = f"STDOUT:\n{output}\n\nSTDERR:\n{error}"
 
+      kind_match = re.search(r"DEVICE_KIND:\s*(.+)", result_json.get("output", ""))
       test_results = {
         "exit_code": result_json.get("exit_code", -1),
         "output": full_output,
         "success": result_json.get("exit_code") == 0,
+        "device_kind": kind_match.group(1).strip() if kind_match else None,
       }
 
       logging.info(

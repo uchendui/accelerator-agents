@@ -82,6 +82,7 @@ async def autotune_kernel(
             "best_config": output_data["best_cfg"],
             "best_time_ms": output_data["best_time"],
             "best_speedup": output_data.get("best_speedup"),
+            "best_device_kind": output_data.get("best_device_kind"),
             "best_output": output_data["best_output"],
             "all_results": output_data.get("all_results", []),
           }
