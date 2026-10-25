@@ -147,7 +147,12 @@ class AutonomousPipelineAgent(BaseAgent):
 
       validation_status = ctx.session.state.get("validation_loop_status", {})
       test_file_path = ctx.session.state["test_file_path"]
-      if validation_status.get("success") and os.path.exists(test_file_path):
+      # A test file written before the template printed DEVICE_KIND cannot pass the eval server's chip check.
+      validated = validation_status.get("success") and os.path.exists(test_file_path)
+      if validated:
+        with open(test_file_path) as f:
+          validated = "DEVICE_KIND" in f.read()
+      if validated:
         logging.info(
           f"[{self.name}] Initial test validation exists, skipping test generation"
         )

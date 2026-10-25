@@ -14,11 +14,14 @@ from typing import Optional
 import aiohttp
 import requests
 import yaml
+from dotenv import find_dotenv, load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from auto_agent.constants import EVAL_SERVER_PORT, REQUEST_TIMEOUT
 
+# TPU_VERSION comes from the exported environment or from the adk/.env file, like the other MaxKernel processes.
+load_dotenv(find_dotenv(usecwd=True))
 # jax device kinds of the TPU generation this hub evaluates for, keyed by the TPU_VERSION the launchers set
 DEVICE_KINDS = {"TPU v5e": "TPU v5 lite", "TPU v6e": "TPU v6 lite"}
 EXPECTED_DEVICE_KIND = DEVICE_KINDS[os.environ["TPU_VERSION"]]
@@ -475,7 +478,7 @@ async def _perform_evaluation(task_id: str, request: EvalRequest):
               detail=result.get("detail", "Backend evaluation failed"),
             )
 
-      # A result that carries a timing must name the chip that produced it: a timing without the line gives {None}.
+      # A timing without a chip line is a harness error. A wrong real kind marks the backend down.
       kinds = set()
       if request.eval_type == EvalTypes.AUTOTUNE:
         if result["exit_code"] == 0:
@@ -487,6 +490,11 @@ async def _perform_evaluation(task_id: str, request: EvalRequest):
       elif re.search(r"RESULT_TIME:", result["output"] or ""):
         kind_match = re.search(r"DEVICE_KIND:\s*(.+)", result["output"])
         kinds = {kind_match.group(1).strip() if kind_match else None}
+      if None in kinds:
+        raise HTTPException(
+          status_code=500,
+          detail="the result carries a timing without a DEVICE_KIND line",
+        )
       if kinds and kinds != {EXPECTED_DEVICE_KIND}:
         logging.error(
           f"Device kind mismatch for backend {backend_name}: expected {EXPECTED_DEVICE_KIND}, got {kinds}"
