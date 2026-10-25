@@ -111,10 +111,13 @@ class Backend:
           else:
             self.version = str(data)
         else:
-          self.version = f"HTTP Error {resp.status_code}"
+          logging.warning(f"Failed to get TPU version from {url}: HTTP {resp.status_code}")
+          self.version = None
+          self.status = "down"
       except Exception as e:
         logging.warning(f"Failed to get TPU version from {url}: {e}")
-        self.version = "Unknown TPU"
+        self.version = None
+        self.status = "down"
     else:
       self.version = "CPU"
 
@@ -231,6 +234,8 @@ class Evaluator:
         self._create_tunnel(backend_config)
         backend = Backend(*key)
         logging.info(f"Added backend {backend.name}")
+      elif backend.version is None:  # its server did not answer when it was added, so ask again
+        backend = Backend(*key)
       backends.append(backend)
     for backend in loaded.values():
       logging.info(f"Removed backend {backend.name}")
@@ -423,6 +428,23 @@ async def _perform_evaluation(task_id: str, request: EvalRequest):
         total=backend_timeout + BACKEND_GRACE, sock_connect=30
       )
       async with aiohttp.ClientSession(timeout=client_timeout) as session:
+        if backend_type == "tpu":
+          try:
+            async with session.post(
+              f"http://{backend_ip}:{backend_port}/get_tpu_version",
+              timeout=aiohttp.ClientTimeout(total=10),
+            ) as version_response:
+              data = await version_response.json()
+              version = data["tpu_version"] if version_response.status == 200 and isinstance(data, dict) else None
+          except Exception:
+            version = None
+          if version != backend.version:
+            logging.error(
+              f"TPU version mismatch for backend {backend_name}: recorded {backend.version}, got {version}"
+            )
+            backend.set_status("down")
+            _tasks[task_id]["status"] = TaskStatus.QUEUED
+            continue
         async with session.post(
           f"http://{backend_ip}:{backend_port}/{request.eval_type.value}",
           json=payload,
