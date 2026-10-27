@@ -124,15 +124,6 @@ class AutonomousPipelineAgent(BaseAgent):
           with open(snapshot_path, "w") as f:
             f.write(record["kernel_code"])
 
-    # Restart skipped steps when the previous pod never uploaded their node files.
-    if resume_after in STEP_TO_LAST_ARTIFACT_KEY:
-      done_keys = ITERATION_ARTIFACT_KEYS[
-        : ITERATION_ARTIFACT_KEYS.index(STEP_TO_LAST_ARTIFACT_KEY[resume_after]) + 1
-      ]
-      if any(not os.path.exists(ctx.session.state[key]) for key in done_keys):
-        logging.info(f"[{self.name}] Resumed artifacts are missing; restarting iteration {iteration}")
-        resume_after = None
-
     first_iteration = iteration
     # A restored session holds iterations 0..iteration-1, so iteration-1's
     # snapshots are what the next iteration would have read.

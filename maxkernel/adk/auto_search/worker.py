@@ -1,12 +1,53 @@
+import json
 import logging
 import os
+import tempfile
 from typing import Any, Dict, Optional
+
+from google.adk.events import Event, EventActions
 
 from auto_agent.agent import create_root_agent
 from auto_agent.agent_client.auto_agent_client import AutoAgentClient
+from auto_agent.subagents.pipeline_agent import (
+  ITERATION_ARTIFACT_KEYS,
+  STEP_TO_LAST_ARTIFACT_KEY,
+)
 from auto_search.graph import EvaluationResult, Node
 
 logger = logging.getLogger(__name__)
+
+
+def reset_stale_resume(session_dir: str) -> bool:
+  """Clears completed_step in a saved session whose skipped steps left no artifact on disk (the pod that
+  ran them never uploaded its node files), so the pipeline restarts that iteration from the plan step.
+  The reset is also appended as an event, because the saved events are replayed on resume."""
+  session_json_path = os.path.join(session_dir, "session.json")
+  if not os.path.exists(session_json_path):
+    return False
+  with open(session_json_path) as f:
+    saved = json.load(f)
+  state = saved["state"]
+  resume_after = state.get("completed_step")
+  if resume_after in STEP_TO_LAST_ARTIFACT_KEY:
+    done_keys = ITERATION_ARTIFACT_KEYS[
+      : ITERATION_ARTIFACT_KEYS.index(STEP_TO_LAST_ARTIFACT_KEY[resume_after]) + 1
+    ]
+    if any(not os.path.exists(state[key]) for key in done_keys):
+      state["completed_step"] = None
+      event = Event(
+        author="orchestrator",
+        actions=EventActions(state_delta={"completed_step": None}),
+      )
+      saved["events"].append(
+        json.loads(event.model_dump_json(by_alias=True, exclude_none=True))
+      )
+      with tempfile.NamedTemporaryFile("w", dir=session_dir, delete=False) as f:
+        json.dump(saved, f, indent=2)
+        temp_path = f.name
+      os.replace(temp_path, session_json_path)
+      logger.info("Reset stale completed_step %s in %s", resume_after, session_json_path)
+      return True
+  return False
 
 
 class ADKSessionWorker:
@@ -64,6 +105,8 @@ class ADKSessionWorker:
     self, session_dir: str, parent_node: Node, reference_code: str
   ) -> None:
     """Writes the reference code and parent's optimized code (if any) to session directory."""
+    # Check before writing the parent's files, which would hide this iteration's missing artifacts.
+    reset_stale_resume(session_dir)
     base_kernel_path = os.path.join(session_dir, "base_kernel.py")
     with open(base_kernel_path, "w") as f:
       f.write(reference_code)
