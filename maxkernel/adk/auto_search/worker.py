@@ -180,6 +180,10 @@ class ADKSessionWorker:
       with open(opt_path, "r") as f:
         optimized_code = f.read()
 
+    # The history keeps the code of every iteration, so a node whose workdir file was lost still records its kernel.
+    if not optimized_code:
+      optimized_code = best_run.get("kernel_code") or ""
+
     # Read optimized plan if it exists
     plan_path = state.get("kernel_plan_path")
     optimized_plan = ""
