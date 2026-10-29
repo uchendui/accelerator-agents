@@ -108,31 +108,35 @@ class Backend:
     self.port = port
     self.backend_type = backend_type  # "tpu" or "cpu"
     self.status = "available"
-
-    # Get version info for display purposes
+    self.version = None if backend_type == "tpu" else "CPU"
     if backend_type == "tpu":
-      url = f"http://{self.ip}:{self.port}/get_tpu_version"
-      try:
-        resp = requests.post(url, timeout=10)
-        if resp.status_code == 200:
-          data = resp.json()
-          version = data.get("tpu_version") if isinstance(data, dict) else None
-          if version is None or version == "TPU version not found":
-            logging.warning(f"Failed to get TPU version from {url}: {version}")
-            self.version = None
-            self.status = "down"
-          else:
-            self.version = version
-        else:
-          logging.warning(f"Failed to get TPU version from {url}: HTTP {resp.status_code}")
-          self.version = None
-          self.status = "down"
-      except Exception as e:
-        logging.warning(f"Failed to get TPU version from {url}: {e}")
-        self.version = None
-        self.status = "down"
-    else:
-      self.version = "CPU"
+      self.probe()
+
+  def probe(self):
+    """Asks the TPU server for its version. A server that answers with one is available, and the first
+    answer is the recorded version. A server that does not answer, or answers another version than the
+    recorded one, is down."""
+    url = f"http://{self.ip}:{self.port}/get_tpu_version"
+    version = None
+    try:
+      resp = requests.post(url, timeout=10)
+      if resp.status_code == 200:
+        data = resp.json()
+        version = data.get("tpu_version") if isinstance(data, dict) else None
+        if version is None or version == "TPU version not found":
+          logging.warning(f"Failed to get TPU version from {url}: {version}")
+          version = None
+      else:
+        logging.warning(f"Failed to get TPU version from {url}: HTTP {resp.status_code}")
+    except Exception as e:
+      logging.warning(f"Failed to get TPU version from {url}: {e}")
+    if version is None or (self.version is not None and version != self.version):
+      self.status = "down"
+      return
+    if self.status == "down":
+      logging.info(f"Backend {self.name} answers again with {version}, marking as available")
+    self.version = version
+    self.status = "available"
 
   def __str__(self):
     return f"{self.name}: {self.version} ({self.ip}:{self.port})"
@@ -228,8 +232,9 @@ class Evaluator:
       )
 
   def reload(self):
-    """Applies the config's current backend list: a loaded backend keeps its object and status, a new one is
-    created with its tunnel, and one that left the list is dropped (a task running on it still finishes)."""
+    """Applies the config's current backend list: a loaded backend keeps its object and status (a down one is
+    asked for its version again), a new one is created with its tunnel, and one that left the list is dropped
+    (a task running on it still finishes)."""
     with open(self.cfg_path, "r") as file:
       config = yaml.safe_load(file) or {}
     loaded = {
@@ -247,8 +252,10 @@ class Evaluator:
         self._create_tunnel(backend_config)
         backend = Backend(*key)
         logging.info(f"Added backend {backend.name}")
-      elif backend.version is None:  # its server did not answer when it was added, so ask again
-        backend = Backend(*key)
+      elif backend.get_status() == "down":
+        # A server still starting when it was added, or one whose connection dropped once, comes back
+        # when it answers again; nothing else ever sets a down backend back to available.
+        backend.probe()
       backends.append(backend)
     for backend in loaded.values():
       logging.info(f"Removed backend {backend.name}")

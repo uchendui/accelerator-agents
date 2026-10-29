@@ -7,6 +7,10 @@ import aiohttp
 from auto_agent.constants import REQUEST_TIMEOUT
 
 
+# The longest wait between two tries while the eval server is unavailable.
+RETRY_DELAY_CAP = 120
+
+
 class TaskTimeoutError(Exception):
   pass
 
@@ -101,3 +105,43 @@ async def call_eval_server_async(
         f"Task {task_id} status: {status}. Waiting {poll_interval}s..."
       )
       await asyncio.sleep(poll_interval)
+
+
+def eval_server_unavailable(error: BaseException) -> bool:
+  """Whether the error means the eval server could not take the request: it was unreachable, or every TPU
+  server of the type was down (a 503 answer, or the queued task failed with that detail)."""
+  text = str(error)
+  return (
+    isinstance(error, (aiohttp.ClientConnectionError, asyncio.TimeoutError))
+    or "Status: 503" in text
+    or "is down" in text
+  )
+
+
+async def call_eval_server_until_available(
+  session: aiohttp.ClientSession,
+  eval_server_url: str,
+  payload: dict,
+  name: str = "",
+  **kwargs,
+) -> dict:
+  """call_eval_server_async that keeps trying while the eval server is unavailable, with the wait doubling
+  from 10 s up to RETRY_DELAY_CAP and no limit on the tries (the search's own timeout bounds them). A kernel
+  that ran past its time limit (TaskTimeoutError) is a result and is raised at once. Any other error gets
+  three more tries, 10, 20 and 40 s apart, and is then raised."""
+  delay = 10
+  other_delays = iter((10, 20, 40))
+  while True:
+    try:
+      return await call_eval_server_async(session, eval_server_url, payload, **kwargs)
+    except TaskTimeoutError:
+      raise
+    except Exception as e:
+      if eval_server_unavailable(e):
+        wait, delay = delay, min(delay * 2, RETRY_DELAY_CAP)
+      else:
+        wait = next(other_delays, None)
+        if wait is None:
+          raise
+      logging.warning(f"[{name}] Eval server error: {e}. Retrying in {wait} seconds.")
+      await asyncio.sleep(wait)

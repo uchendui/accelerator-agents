@@ -19,7 +19,7 @@ from google.adk.events import Event, EventActions
 
 from auto_agent.client_utils.eval_client import (
   TaskTimeoutError,
-  call_eval_server_async,
+  call_eval_server_until_available,
 )
 from auto_agent.config import get_thinking_planner, model_config
 from auto_agent.constants import EVAL_SERVER_PORT, MODEL_NAME, REQUEST_TIMEOUT
@@ -511,29 +511,24 @@ class MockTestExecutionAgent(BaseAgent):
 
         client_timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT + 10)
         async with aiohttp.ClientSession(timeout=client_timeout) as session:
-          for retry_delay in (10, 20, 40, None):
-            try:
-              result_json = await call_eval_server_async(
-                session,
-                f"http://localhost:{EVAL_SERVER_PORT}",
-                payload,
-                poll_interval=10,
-                client_wait_timeout=REQUEST_TIMEOUT,
-              )
-              break
-            except TaskTimeoutError:
-              # The test ran past its time limit: a result, not a server error.
-              raise
-            except Exception as e:
-              if retry_delay is None:
-                error_msg = f"Eval server unavailable: {e}"
-                logging.error(f"[{self.name}] {error_msg}")
-                raise EvalServerUnavailable(error_msg) from e
-              logging.warning(
-                f"[{self.name}] Eval server error: {e}. Retrying in"
-                f" {retry_delay} seconds."
-              )
-              await asyncio.sleep(retry_delay)
+          try:
+            # An unreachable eval server, or one with no live TPU server, is waited out: the iteration
+            # must not be recorded as a failed kernel.
+            result_json = await call_eval_server_until_available(
+              session,
+              f"http://localhost:{EVAL_SERVER_PORT}",
+              payload,
+              self.name,
+              poll_interval=10,
+              client_wait_timeout=REQUEST_TIMEOUT,
+            )
+          except TaskTimeoutError:
+            # The test ran past its time limit: a result, not a server error.
+            raise
+          except Exception as e:
+            error_msg = f"Eval server unavailable: {e}"
+            logging.error(f"[{self.name}] {error_msg}")
+            raise EvalServerUnavailable(error_msg) from e
 
         exit_code = result_json.get("exit_code", -1)
         stdout = result_json.get("output", "")
