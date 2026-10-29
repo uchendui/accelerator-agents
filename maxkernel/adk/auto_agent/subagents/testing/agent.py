@@ -170,10 +170,12 @@ class TestRunner(BaseAgent):
 
       client_timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT + 10)
       async with aiohttp.ClientSession(timeout=client_timeout) as session:
-        result_json = await call_eval_server_async(
+        # An unavailable eval server is waited out, so the test is never recorded as failed for it.
+        result_json = await call_eval_server_until_available(
           session,
           f"http://localhost:{EVAL_SERVER_PORT}",
           payload,
+          self.name,
           poll_interval=TEST_EXECUTION_POLL_INTERVAL,
           client_wait_timeout=REQUEST_TIMEOUT,
         )
