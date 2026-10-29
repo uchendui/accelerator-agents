@@ -499,6 +499,11 @@ def get_tpu_version() -> dict:
       A string like "TPU v4", "TPU v3", etc., or "TPU version not found".
   """
 
+  # The launchers export TPU_VERSION ("TPU 7x") to every server; tpu-info prints the chip as "TPU7x", which the
+  # pattern below does not match, so the exported version answers first.
+  if os.environ.get("TPU_VERSION"):
+    return {"tpu_version": os.environ["TPU_VERSION"]}
+
   # --- Method 1: Try running the `tpu-info` command-line tool (No resource conflicts) ---
   try:
     # Run the tpu-info command
