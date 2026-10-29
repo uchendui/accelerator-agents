@@ -23,7 +23,7 @@ from auto_agent.constants import EVAL_SERVER_PORT, REQUEST_TIMEOUT
 # TPU_VERSION comes from the exported environment or from the adk/.env file, like the other MaxKernel processes.
 load_dotenv(find_dotenv(usecwd=True))
 # jax device kinds of the TPU generation this hub evaluates for, keyed by the TPU_VERSION the launchers set
-DEVICE_KINDS = {"TPU v5e": "TPU v5 lite", "TPU v6e": "TPU v6 lite"}
+DEVICE_KINDS = {"TPU v5e": "TPU v5 lite", "TPU v6e": "TPU v6 lite", "TPU 7x": "TPU7x"}
 EXPECTED_DEVICE_KIND = DEVICE_KINDS[os.environ["TPU_VERSION"]]
 
 logging.basicConfig(
