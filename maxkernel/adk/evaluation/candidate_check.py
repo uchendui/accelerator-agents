@@ -25,10 +25,10 @@ def harness_tampering(source: str) -> str | None:
   harness or internals module, or an attribute or subscript assignment whose root name (through attributes,
   subscripts and the function of a call) is an imported module or a flagged name. A write through the
   candidate's own name (out_ref.reshape(1, n)[...] = x) passes. A reason that starts with "interpret mode: "
-  names a call with interpret=True, a force_tpu_interpret_mode or InterpretParams reference, or an assignment
-  or config update of an option whose name holds "interpret". A non-constant interpret value passes here, because
-  a static check cannot know it (six real kernels compute it from the backend): the harness checks the value at
-  run time. Source that does not parse is left to the compile step."""
+  names a force_tpu_interpret_mode or InterpretParams reference, or an assignment or config update of an option
+  whose name holds "interpret". An interpret= argument passes here, even interpret=True, because it often sits in a
+  branch that never runs on a TPU (seven real kernels pass the task's flag through or force it off on the
+  backend): the harness checks the value at run time. Source that does not parse is left to the compile step."""
   try:
     tree = ast.parse(source)
   except SyntaxError:
@@ -54,9 +54,6 @@ def harness_tampering(source: str) -> str | None:
     if isinstance(node, ast.Name) and node.id in HARNESS_NAMES:
       return f"{node.id} at line {node.lineno}"
     if isinstance(node, ast.Call):
-      for keyword in node.keywords:
-        if keyword.arg == "interpret" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
-          return f"interpret mode: interpret=True at line {node.lineno}"
       if (
         isinstance(node.func, ast.Attribute) and node.func.attr == "update" and node.args
         and isinstance(node.args[0], ast.Constant) and "interpret" in str(node.args[0].value)

@@ -37,20 +37,20 @@ def test_a_candidate_that_reaches_into_the_harness_is_flagged(source):
   # The two lines that flagged 32 of 37 real kernels: the usual main block, and a write through a ref method.
   'def computation(x):\n    return x\n\n\nif __name__ == "__main__":\n    print(computation(1))\n',
   "def kernel(x_ref, out_ref):\n    out_ref.reshape(1, 8)[...] = x_ref[...]\n",
+  # interpret=True in a branch that a TPU never takes (1256919 online_softmax_log_probs node_002); the harness
+  # checks the interpret value at run time.
+  "def f(x, use_interpret):\n    if not use_interpret:\n        return g(x)\n"
+  "    return pl.pallas_call(kernel, out_shape=s, interpret=True)(x)\n",
 ])
 def test_an_ordinary_pallas_kernel_passes(source):
   assert harness_tampering(source) is None
 
 
 @pytest.mark.parametrize("source", [
-  "pl.pallas_call(kernel, out_shape=s, interpret=True)(x)\n",
   "pl.pallas_call(kernel, out_shape=s, interpret=pltpu.InterpretParams())(x)\n",
   "with pltpu.force_tpu_interpret_mode():\n    y = f(x)\n",
   'jax.config.update("jax_pallas_interpret", True)\n',
   "jax.config.jax_pallas_interpret = True\n",
-  # A forwarded parameter is fine, but the call that turns it on is not.
-  "def gmm(x, interpret=False):\n    return pl.pallas_call(kernel, out_shape=s, interpret=interpret)(x)\n\n"
-  "y = gmm(x, interpret=True)\n",
 ])
 def test_a_candidate_that_runs_pallas_in_interpret_mode_is_flagged_as_interpret_mode(source):
   reason = harness_tampering(source)
