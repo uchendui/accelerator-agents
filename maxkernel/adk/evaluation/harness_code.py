@@ -12,6 +12,22 @@ import os
 import shutil
 import sys
 import traceback
+import jax.experimental.pallas as _pallas
+
+# A candidate that runs Pallas in interpret mode runs no TPU kernel, so its time compares nothing. The wrapper
+# goes in before optimized.py loads, and the reference's own calls run with the flag set, because a CPU
+# task's reference may use interpret mode on purpose.
+_pallas_call = _pallas.pallas_call
+_reference_running = [False]
+
+
+def _checked_pallas_call(*args, **kwargs):
+  if kwargs.get("interpret") and not _reference_running[0]:
+    raise RuntimeError("interpret mode: pallas_call ran with interpret=" + repr(kwargs["interpret"]))
+  return _pallas_call(*args, **kwargs)
+
+
+_pallas.pallas_call = _checked_pallas_call
 
 
 def load_module_from_path(module_name, file_path):
@@ -298,8 +314,12 @@ def main():
 
       # 1. Correctness Check
       try:
-        jit_base = jax.jit(base_mod.computation, static_argnums=static_argnums)
-        out_base = jax.block_until_ready(jit_base(*args))
+        _reference_running[0] = True
+        try:
+          jit_base = jax.jit(base_mod.computation, static_argnums=static_argnums)
+          out_base = jax.block_until_ready(jit_base(*args))
+        finally:
+          _reference_running[0] = False
         out_base_cpu = jax.device_get(out_base)
         del out_base
       except Exception as e:
@@ -393,7 +413,11 @@ def main():
 
       # Benchmark and collect timing results
       try:
-        time_base = benchmark(base_mod.computation, args, static_argnums, timer)
+        _reference_running[0] = True
+        try:
+          time_base = benchmark(base_mod.computation, args, static_argnums, timer)
+        finally:
+          _reference_running[0] = False
         time_optimized = benchmark(optimized_mod.computation, args, static_argnums, timer)
         result["reference_time_ms"].append(time_base * 1000)
         result["optimized_time_ms"].append(time_optimized * 1000)

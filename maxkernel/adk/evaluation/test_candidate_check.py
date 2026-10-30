@@ -44,7 +44,6 @@ def test_an_ordinary_pallas_kernel_passes(source):
 
 @pytest.mark.parametrize("source", [
   "pl.pallas_call(kernel, out_shape=s, interpret=True)(x)\n",
-  "pl.pallas_call(kernel, out_shape=s, interpret=n < 128)(x)\n",
   "pl.pallas_call(kernel, out_shape=s, interpret=pltpu.InterpretParams())(x)\n",
   "with pltpu.force_tpu_interpret_mode():\n    y = f(x)\n",
   'jax.config.update("jax_pallas_interpret", True)\n',
@@ -60,6 +59,12 @@ def test_a_candidate_that_runs_pallas_in_interpret_mode_is_flagged_as_interpret_
 
 @pytest.mark.parametrize("source", [
   "pl.pallas_call(kernel, out_shape=s, interpret=False)(x)\n",
+  # Six real kernels compute the value from the backend; the harness checks it at run time.
+  "import jax\n\ndef f(x, interpret=False):\n    use_interpret = bool(interpret) and (jax.default_backend() != 'tpu')\n"
+  "    return pl.pallas_call(kernel, out_shape=s, interpret=use_interpret)(x)\n",
+  "import jax\n\ndef f(x, interpret=False):\n    use_interpret = False if jax.default_backend() == 'tpu' else interpret\n"
+  "    return pl.pallas_call(kernel, out_shape=s, interpret=use_interpret)(x)\n",
+  "pl.pallas_call(kernel, out_shape=s, interpret=n < 128)(x)\n",
   # The Megablox reference forwards a parameter whose default is False; five dataset references do.
   "def gmm(x, *, interpret: bool = False):\n    return pl.pallas_call(kernel, out_shape=s, interpret=interpret)(x)\n",
   # The splash attention references forward a required parameter.
@@ -67,7 +72,7 @@ def test_a_candidate_that_runs_pallas_in_interpret_mode_is_flagged_as_interpret_
   # Three references copy a Pallas dataclass field by field.
   "import dataclasses\n\ndef copy(standard_ref, cls):\n    return {f.name: getattr(standard_ref, f.name) for f in dataclasses.fields(cls)}\n",
 ])
-def test_interpret_false_and_a_forwarded_false_default_pass(source):
+def test_a_non_constant_interpret_value_passes_the_static_check(source):
   assert harness_tampering(source) is None
 
 

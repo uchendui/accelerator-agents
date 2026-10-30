@@ -25,33 +25,16 @@ def harness_tampering(source: str) -> str | None:
   harness or internals module, or an attribute or subscript assignment whose root name (through attributes,
   subscripts and the function of a call) is an imported module or a flagged name. A write through the
   candidate's own name (out_ref.reshape(1, n)[...] = x) passes. A reason that starts with "interpret mode: "
-  names a call with an interpret keyword other than the constant False, a force_tpu_interpret_mode or
-  InterpretParams reference, or an assignment or config update of an option whose name holds "interpret".
-  A function parameter with no default or the default False may be forwarded (interpret=interpret, as the
-  Megablox and splash attention references do): the mode then turns on only through a call that passes True,
-  which is flagged. A getattr with a computed name is flagged only on an imported module or a flagged name, so
-  copying a dataclass field by field (getattr(standard_ref, f.name)) passes. Source that does not parse is left
-  to the compile step."""
+  names a call with interpret=True, a force_tpu_interpret_mode or InterpretParams reference, or an assignment
+  or config update of an option whose name holds "interpret". A non-constant interpret value passes here, because
+  a static check cannot know it (six real kernels compute it from the backend): the harness checks the value at
+  run time. Source that does not parse is left to the compile step."""
   try:
     tree = ast.parse(source)
   except SyntaxError:
     return None
   imported = set()
-  forwarded = set()  # ids of the interpret keywords that forward a parameter with no default or the default False
   for node in ast.walk(tree):
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-      arguments = node.args
-      positional = arguments.posonlyargs + arguments.args
-      defaults = [None] * (len(positional) - len(arguments.defaults)) + list(arguments.defaults)
-      false_params = {
-        arg.arg for arg, default in zip(positional + arguments.kwonlyargs, defaults + list(arguments.kw_defaults))
-        if default is None or (isinstance(default, ast.Constant) and default.value is False)
-      }
-      for call in ast.walk(node):
-        if isinstance(call, ast.Call):
-          for keyword in call.keywords:
-            if keyword.arg == "interpret" and isinstance(keyword.value, ast.Name) and keyword.value.id in false_params:
-              forwarded.add(id(keyword))
     if isinstance(node, ast.Import):
       for alias in node.names:
         imported.add((alias.asname or alias.name).split(".")[0])
@@ -72,10 +55,8 @@ def harness_tampering(source: str) -> str | None:
       return f"{node.id} at line {node.lineno}"
     if isinstance(node, ast.Call):
       for keyword in node.keywords:
-        if keyword.arg == "interpret" and id(keyword) not in forwarded and not (
-          isinstance(keyword.value, ast.Constant) and keyword.value.value is False
-        ):
-          return f"interpret mode: interpret={ast.unparse(keyword.value)} at line {node.lineno}"
+        if keyword.arg == "interpret" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+          return f"interpret mode: interpret=True at line {node.lineno}"
       if (
         isinstance(node.func, ast.Attribute) and node.func.attr == "update" and node.args
         and isinstance(node.args[0], ast.Constant) and "interpret" in str(node.args[0].value)
