@@ -33,6 +33,9 @@ def test_a_candidate_that_reaches_into_the_harness_is_flagged(source):
   # A Pallas kernel writes its output and accumulator refs, and may read a constant-named attribute.
   "import jax\n\ndef kernel(x_ref, o_ref, acc_ref):\n    acc_ref[...] += x_ref[...]\n    o_ref[...] = acc_ref[...]\n"
   "    cfg = {}\n    cfg['block'] = getattr(jax, 'numpy')\n",
+  # The two lines that flagged 32 of 37 real kernels: the usual main block, and a write through a ref method.
+  'def computation(x):\n    return x\n\n\nif __name__ == "__main__":\n    print(computation(1))\n',
+  "def kernel(x_ref, out_ref):\n    out_ref.reshape(1, 8)[...] = x_ref[...]\n",
 ])
 def test_an_ordinary_pallas_kernel_passes(source):
   assert harness_tampering(source) is None

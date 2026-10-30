@@ -6,9 +6,11 @@ import ast
 # module or a frame by a computed name.
 HARNESS_MODULES = ("test_harness", "harness_code", "evaluation", "auto_agent", "importlib", "inspect", "gc",
                    "ctypes", "builtins")
-# Names, attributes and strings that only the harness or the interpreter's internals use.
+# Names and attributes that only the harness or the interpreter's internals use.
 HARNESS_NAMES = ("base_kernel", "HARNESS_TIMER", "__main__", "__builtins__", "builtins", "importlib", "inspect",
                  "gc", "ctypes")
+# The same as strings, without "__main__": an ordinary kernel ends with `if __name__ == "__main__":`.
+HARNESS_STRINGS = tuple(name for name in HARNESS_NAMES if name != "__main__")
 HARNESS_ATTRIBUTES = ("modules", "_getframe", "__dict__")
 # Calls that reach a module, a namespace or an attribute by a computed name.
 NAMESPACE_CALLS = ("__import__", "vars", "globals", "locals", "setattr", "delattr")
@@ -18,8 +20,9 @@ def harness_tampering(source: str) -> str | None:
   """What in a candidate's source reaches into the harness, or None: a .modules, _getframe or __dict__
   attribute, the name or string base_kernel, HARNESS_TIMER, __main__, __builtins__ or an internals module, a
   __import__, vars, globals, locals, setattr or delattr call, a getattr with a computed name, an import of a
-  harness or internals module, or an attribute or subscript assignment whose root is a call result or an
-  imported module rather than a name the candidate defined itself. Source that does not parse is left to the
+  harness or internals module, or an attribute or subscript assignment whose root name (through attributes,
+  subscripts and the function of a call) is an imported module or a flagged name. A write through the
+  candidate's own name (out_ref.reshape(1, n)[...] = x) passes. Source that does not parse is left to the
   compile step."""
   try:
     tree = ast.parse(source)
@@ -41,7 +44,7 @@ def harness_tampering(source: str) -> str | None:
       return f"{ast.unparse(node)} at line {node.lineno}"
     if isinstance(node, ast.Name) and node.id in HARNESS_NAMES:
       return f"{node.id} at line {node.lineno}"
-    if isinstance(node, ast.Constant) and node.value in HARNESS_NAMES:
+    if isinstance(node, ast.Constant) and node.value in HARNESS_STRINGS:
       return f"the string {node.value!r} at line {node.lineno}"
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
       if node.func.id in NAMESPACE_CALLS:
@@ -56,10 +59,9 @@ def harness_tampering(source: str) -> str | None:
         if not isinstance(target, (ast.Attribute, ast.Subscript)):
           continue
         root = target
-        while isinstance(root, (ast.Attribute, ast.Subscript)):
-          root = root.value
-        if not isinstance(root, ast.Name):
-          return f"assignment to {ast.unparse(target)}, whose root is not a name, at line {node.lineno}"
-        if root.id in imported:
-          return f"assignment to {ast.unparse(target)} on an imported module at line {node.lineno}"
+        while isinstance(root, (ast.Attribute, ast.Subscript, ast.Call)):
+          root = root.func if isinstance(root, ast.Call) else root.value
+        # A flagged call at the root (vars(...), __import__(...)) is caught by the call rule above.
+        if isinstance(root, ast.Name) and (root.id in imported or root.id in HARNESS_NAMES):
+          return f"assignment to {ast.unparse(target)} on {root.id} at line {node.lineno}"
   return None
