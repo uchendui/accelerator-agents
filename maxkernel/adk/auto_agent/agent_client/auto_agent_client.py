@@ -25,6 +25,7 @@ from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.genai.types import Content, Part
 
 from auto_agent.agent import create_root_agent
+from auto_agent.agent_client.session_file import load_session
 from auto_agent.config import get_compaction_config
 
 logger = logging.getLogger(__name__)
@@ -62,10 +63,8 @@ class AutoAgentClient:
     self, initial_state: Optional[dict[str, Any]] = None
   ) -> None:
     if self.session_dir:
-      session_json_path = os.path.join(self.session_dir, "session.json")
-      if os.path.exists(session_json_path):
-        with open(session_json_path) as f:
-          saved_session = json.load(f)
+      saved_session = load_session(self.session_dir)
+      if saved_session is not None:
         self.session = await self.session_service.create_session(
           app_name=self.app_name,
           user_id=self.user_id,

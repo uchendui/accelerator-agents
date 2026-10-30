@@ -8,6 +8,7 @@ from google.adk.events import Event, EventActions
 
 from auto_agent.agent import create_root_agent
 from auto_agent.agent_client.auto_agent_client import AutoAgentClient
+from auto_agent.agent_client.session_file import load_session
 from auto_agent.subagents.pipeline_agent import (
   ITERATION_ARTIFACT_KEYS,
   STEP_TO_LAST_ARTIFACT_KEY,
@@ -21,11 +22,9 @@ def reset_stale_resume(session_dir: str) -> bool:
   """Clears completed_step in a saved session whose skipped steps left no artifact on disk (the pod that
   ran them never uploaded its node files), so the pipeline restarts that iteration from the plan step.
   The reset is also appended as an event, because the saved events are replayed on resume."""
-  session_json_path = os.path.join(session_dir, "session.json")
-  if not os.path.exists(session_json_path):
+  saved = load_session(session_dir)
+  if saved is None:
     return False
-  with open(session_json_path) as f:
-    saved = json.load(f)
   state = saved["state"]
   resume_after = state.get("completed_step")
   if resume_after in STEP_TO_LAST_ARTIFACT_KEY:
@@ -44,6 +43,7 @@ def reset_stale_resume(session_dir: str) -> bool:
       with tempfile.NamedTemporaryFile("w", dir=session_dir, delete=False) as f:
         json.dump(saved, f, indent=2)
         temp_path = f.name
+      session_json_path = os.path.join(session_dir, "session.json")
       os.replace(temp_path, session_json_path)
       logger.info("Reset stale completed_step %s in %s", resume_after, session_json_path)
       return True
