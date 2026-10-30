@@ -7,7 +7,7 @@ from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 
-from auto_agent.client_utils.eval_client import call_eval_server_async
+from auto_agent.client_utils.eval_client import call_eval_server_until_available
 from auto_agent.constants import EVAL_SERVER_PORT, REQUEST_TIMEOUT
 
 PROFILE_TIMEOUT = 120
@@ -59,10 +59,12 @@ class KernelProfiler(BaseAgent):
           "timeout": PROFILE_TIMEOUT,
           "backend_type": "tpu",
         }
-        result = await call_eval_server_async(
+        # An unavailable eval server is waited out, so the step records only a real result.
+        result = await call_eval_server_until_available(
           session,
           f"http://localhost:{EVAL_SERVER_PORT}",
           payload,
+          self.name,
           poll_interval=10,
           client_wait_timeout=REQUEST_TIMEOUT,
         )

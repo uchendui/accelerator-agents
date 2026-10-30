@@ -6,7 +6,7 @@ from typing import Any
 
 import aiohttp
 
-from auto_agent.client_utils.eval_client import call_eval_server_async
+from auto_agent.client_utils.eval_client import call_eval_server_until_available
 from auto_agent.constants import EVAL_SERVER_PORT, REQUEST_TIMEOUT
 
 AUTOTUNE_INDIVIDUAL_TIMEOUT = 300
@@ -60,10 +60,12 @@ async def autotune_kernel(
         "total_timeout": AUTOTUNE_TOTAL_TIMEOUT,
         "dependencies": dependencies,
       }
-      result = await call_eval_server_async(
+      # An unavailable eval server is waited out, so the sweep records only a real result.
+      result = await call_eval_server_until_available(
         session,
         f"{server_addr}:{EVAL_SERVER_PORT}",
         payload,
+        kernel_name,
         poll_interval=AUTOTUNE_POLL_INTERVAL,
         client_wait_timeout=REQUEST_TIMEOUT,
       )
