@@ -9,6 +9,8 @@ from auto_agent.constants import REQUEST_TIMEOUT
 
 # The longest wait between two tries while the eval server is unavailable.
 RETRY_DELAY_CAP = 120
+# The waits before the three more tries that any other eval server error gets.
+OTHER_ERROR_DELAYS = (10, 20, 40)
 
 
 class TaskTimeoutError(Exception):
@@ -130,7 +132,7 @@ async def call_eval_server_until_available(
   that ran past its time limit (TaskTimeoutError) is a result and is raised at once. Any other error gets
   three more tries, 10, 20 and 40 s apart, and is then raised."""
   delay = 10
-  other_delays = iter((10, 20, 40))
+  other_delays = iter(OTHER_ERROR_DELAYS)
   while True:
     try:
       return await call_eval_server_async(session, eval_server_url, payload, **kwargs)
