@@ -27,15 +27,17 @@ def harness_tampering(source: str) -> str | None:
   candidate's own name (out_ref.reshape(1, n)[...] = x) passes. A reason that starts with "interpret mode: "
   names a call with an interpret keyword other than the constant False, a force_tpu_interpret_mode or
   InterpretParams reference, or an assignment or config update of an option whose name holds "interpret".
-  A function parameter whose default is False may be forwarded (interpret=interpret, as the Megablox reference
-  does): the mode then turns on only through a call that passes True, which is flagged. Source that does not
-  parse is left to the compile step."""
+  A function parameter with no default or the default False may be forwarded (interpret=interpret, as the
+  Megablox and splash attention references do): the mode then turns on only through a call that passes True,
+  which is flagged. A getattr with a computed name is flagged only on an imported module or a flagged name, so
+  copying a dataclass field by field (getattr(standard_ref, f.name)) passes. Source that does not parse is left
+  to the compile step."""
   try:
     tree = ast.parse(source)
   except SyntaxError:
     return None
   imported = set()
-  forwarded = set()  # ids of the interpret keywords that forward a parameter whose default is False
+  forwarded = set()  # ids of the interpret keywords that forward a parameter with no default or the default False
   for node in ast.walk(tree):
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
       arguments = node.args
@@ -43,7 +45,7 @@ def harness_tampering(source: str) -> str | None:
       defaults = [None] * (len(positional) - len(arguments.defaults)) + list(arguments.defaults)
       false_params = {
         arg.arg for arg, default in zip(positional + arguments.kwonlyargs, defaults + list(arguments.kw_defaults))
-        if isinstance(default, ast.Constant) and default.value is False
+        if default is None or (isinstance(default, ast.Constant) and default.value is False)
       }
       for call in ast.walk(node):
         if isinstance(call, ast.Call):
@@ -87,7 +89,11 @@ def harness_tampering(source: str) -> str | None:
       if node.func.id == "getattr" and not (
         len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str)
       ):
-        return f"getattr() with a computed name at line {node.lineno}"
+        target = node.args[0] if node.args else None
+        while isinstance(target, (ast.Attribute, ast.Subscript, ast.Call)):
+          target = target.func if isinstance(target, ast.Call) else target.value
+        if not isinstance(target, ast.Name) or target.id in imported or target.id in HARNESS_NAMES:
+          return f"getattr() with a computed name at line {node.lineno}"
     if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
       targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
       for target in targets:

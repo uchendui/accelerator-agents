@@ -20,6 +20,7 @@ ADK = Path(__file__).resolve().parents[1]
   "import importlib\n",
   'globals()["HARNESS_" + "TIMER"] = "wallclock"\n',
   'import jax\ngetattr(jax, "prof" + "iler").trace = None\n',
+  'import jax\nname = "profiler"\nmodule = getattr(jax, name)\n',
   "import sys\nframe = sys._getframe(1)\n",
   "import jax\njax.__dict__['profiler'] = None\n",
 ])
@@ -61,6 +62,10 @@ def test_a_candidate_that_runs_pallas_in_interpret_mode_is_flagged_as_interpret_
   "pl.pallas_call(kernel, out_shape=s, interpret=False)(x)\n",
   # The Megablox reference forwards a parameter whose default is False; five dataset references do.
   "def gmm(x, *, interpret: bool = False):\n    return pl.pallas_call(kernel, out_shape=s, interpret=interpret)(x)\n",
+  # The splash attention references forward a required parameter.
+  "def bwd(q, interpret: bool):\n    return pl.pallas_call(kernel, out_shape=s, interpret=interpret)(q)\n",
+  # Three references copy a Pallas dataclass field by field.
+  "import dataclasses\n\ndef copy(standard_ref, cls):\n    return {f.name: getattr(standard_ref, f.name) for f in dataclasses.fields(cls)}\n",
 ])
 def test_interpret_false_and_a_forwarded_false_default_pass(source):
   assert harness_tampering(source) is None
