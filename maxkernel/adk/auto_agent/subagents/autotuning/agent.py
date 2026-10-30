@@ -130,6 +130,13 @@ class AutotuneRunner(BaseAgent):
           f"[{self.name}] Failed to read base kernel file {base_kernel_path}: {e}"
         )
 
+    # The candidate goes along as optimized_kernel.py, where call_eval_server_async checks it for harness
+    # tampering. The sweep script never imports that file: sys.modules holds the module before the harness runs.
+    optimized_kernel_path = ctx.session.state.get("optimized_kernel_path", "")
+    if optimized_kernel_path and os.path.exists(optimized_kernel_path):
+      with open(optimized_kernel_path, "r") as f:
+        dependencies["optimized_kernel.py"] = f.read()
+
     # Read the pre-generated test file (which is the rigorous harness)
     test_file_path = ctx.session.state.get("test_file_path", "")
     harness_code = ""

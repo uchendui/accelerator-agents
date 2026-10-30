@@ -14,6 +14,12 @@ try:
 except ImportError:
     base_mod = None
 
+# The timer is read before the candidate is imported, so the candidate cannot change it: a candidate once
+# set sys.modules["base_kernel"].HARNESS_TIMER at import and was scored on the wall clock.
+HARNESS_TIMER = getattr(base_mod, "HARNESS_TIMER", "device")
+if HARNESS_TIMER not in ("device", "wallclock"):
+    raise ValueError("base_kernel.HARNESS_TIMER must be 'device' or 'wallclock', got " + repr(HARNESS_TIMER))
+
 # Safe import for optimized kernel
 try:
     import optimized_kernel as optimized_mod
@@ -22,7 +28,7 @@ except ImportError:
 
 {input_gen_code}
 
-def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
+def benchmark(func, args, static_argnums, timer, num_iters=50, num_warmups=5):
     # JAXBench's timer (JAXBench/harness/profiler.py benchmark_fn): the device time of each run
     # of the jitted program, read from a jax.profiler trace, median over num_iters runs. Host
     # stalls (~0.5 s pauses were seen on a busy v6e-8 host) are not device time. Unlike JAXBench,
@@ -34,16 +40,14 @@ def benchmark(func, args, static_argnums, num_iters=50, num_warmups=5):
     # (the task's reference, which the agent does not write): kda's reference runs so many small
     # ops that the profiler keeps only 2 of 50 runs, with wrong durations, and one trace per run
     # takes ~42 s to collect. The wall-clock timer times each run separately and takes the median,
-    # so one host stall moves one sample, not the result.
+    # so one host stall moves one sample, not the result. timer is the value main() read from
+    # base_kernel before the candidate was imported; benchmark never reads base_mod itself.
     import glob
     import shutil
     import statistics
     import tempfile
     import time
 
-    # base_mod is the template module global bound at import (None when base_kernel.py is missing,
-    # which main() rejects before any benchmark call), so no None guard is needed here.
-    timer = getattr(base_mod, "HARNESS_TIMER", "device")
     if timer not in ("device", "wallclock"):
         raise ValueError("base_kernel.HARNESS_TIMER must be 'device' or 'wallclock', got " + repr(timer))
 
@@ -205,8 +209,8 @@ def main():
                 all_correct = False
                 continue
 
-            time_base = benchmark(getattr(base_mod, '{kernel_name}'), args, static_argnums)
-            time_optimized = benchmark(getattr(optimized_mod, 'computation'), args, static_argnums)
+            time_base = benchmark(getattr(base_mod, '{kernel_name}'), args, static_argnums, HARNESS_TIMER)
+            time_optimized = benchmark(getattr(optimized_mod, 'computation'), args, static_argnums, HARNESS_TIMER)
             
             times_base.append(time_base)
             times_optimized.append(time_optimized)

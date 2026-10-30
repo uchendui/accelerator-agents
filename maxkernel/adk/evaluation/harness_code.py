@@ -251,8 +251,11 @@ def main():
 
     # Import the uploaded scripts as modules
     base_mod = load_module_from_path("reference", "reference.py")
-    optimized_mod = load_module_from_path("optimized", "optimized.py")
+    # The timer is read before the candidate loads, so the candidate cannot change it at import.
     timer = getattr(base_mod, "HARNESS_TIMER", "device")
+    if timer not in ("device", "wallclock"):
+      raise ValueError("reference.HARNESS_TIMER must be 'device' or 'wallclock', got " + repr(timer))
+    optimized_mod = load_module_from_path("optimized", "optimized.py")
 
     harness_logs = []
 

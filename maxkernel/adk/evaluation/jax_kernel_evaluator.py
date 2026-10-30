@@ -20,6 +20,7 @@ from evaluation.evaluation_utils import (
   print_eval_result,
   write_kernel_task_to_yaml,
 )
+from evaluation.candidate_check import harness_tampering
 from evaluation.harness_code import HARNESS_TEMPLATE
 from evaluation.remote_client.tpu_client import TPUVMClient
 
@@ -27,6 +28,16 @@ logger = logging.getLogger(__name__)  # Get a logger for this module
 
 DEFAULT_ATOL = 1e-3
 DEFAULT_RTOL = 1e-3
+
+
+def flag_tampering(eval_result: EvaluationResult, optimized_code_path: str) -> bool:
+  """Fails the result when the candidate reaches into the harness, so the harness never runs it."""
+  with open(optimized_code_path, "r", encoding="utf-8") as f:
+    tampering = harness_tampering(f.read())
+  if tampering:
+    logger.error(f"Harness tampering in {optimized_code_path}: {tampering}")
+    eval_result.error_trace = [f"harness tampering: {tampering}"]
+  return tampering is not None
 
 
 class JAXKernelEvaluator:
@@ -128,6 +139,8 @@ class JAXKernelEvaluator:
 
     task = load_kernel_task_from_yaml(task_yaml_path)
     eval_result = EvaluationResult(task_id=task.task_id)
+    if flag_tampering(eval_result, optimized_code_path):
+      return eval_result
 
     # Create a temporary directory for the local evaluation run
     local_base_dir = tempfile.mkdtemp(prefix=f"eval_run_{int(time.time())}_")
@@ -266,6 +279,8 @@ class JAXKernelEvaluator:
       self._build_task_json(task, task_json_local, atol=atol, rtol=rtol)
 
       eval_result = EvaluationResult(task_id=task.task_id)
+      if flag_tampering(eval_result, optimized_code_path):
+        return eval_result
       self._build_harness_code(harness_local)
 
       files_to_upload = {

@@ -55,3 +55,24 @@ def test_a_kernel_time_limit_is_a_result_and_is_raised_at_once(monkeypatch):
 def test_another_eval_server_error_is_raised_after_three_more_tries(monkeypatch):
   with pytest.raises(Exception, match="Status: 500"):
     run_until_available(monkeypatch, [Exception("Failed to submit task. Status: 500, Error: boom")] * 4)
+
+
+TAMPERING = 'import sys\nsys.modules["base_kernel"].HARNESS_TIMER = "wallclock"\n'
+
+
+class NeverPosts:
+  def post(self, *args, **kwargs):
+    raise AssertionError("the candidate was sent to the eval server")
+
+
+@pytest.mark.parametrize("payload", [
+  {"eval_type": "unified_test", "code": "test", "timeout": 1,
+   "dependencies": {"base_kernel.py": "def kernel(x):\n    return x\n", "optimized_kernel.py": TAMPERING}},
+  {"eval_type": "compilation_test", "code": TAMPERING, "timeout": 1},
+  {"eval_type": "autotune", "code_template": "template", "search_space": {}, "timeout": 1, "total_timeout": 1,
+   "dependencies": {"optimized_kernel.py": TAMPERING}},
+])
+def test_a_tampering_candidate_is_never_sent_and_comes_back_as_a_failed_result(payload):
+  result = asyncio.run(eval_client.call_eval_server_until_available(NeverPosts(), "http://localhost:1", payload))
+  assert result["exit_code"] == 1 and result["output"] == ""
+  assert result["error"].startswith("harness tampering: ")

@@ -5,6 +5,7 @@ import time
 import aiohttp
 
 from auto_agent.constants import REQUEST_TIMEOUT
+from evaluation.candidate_check import harness_tampering
 
 
 # The longest wait between two tries while the eval server is unavailable.
@@ -21,6 +22,17 @@ class TaskTimeoutError(Exception):
 RUNNING_GRACE = 60
 
 
+def candidate_source(payload: dict) -> str | None:
+  """The candidate kernel of a request: dependencies["optimized_kernel.py"] (the test run and the autotune
+  sweep) or the code of a compilation test. A profile script and a mock test run carry no candidate."""
+  dependencies = payload.get("dependencies") or {}
+  if "optimized_kernel.py" in dependencies:
+    return dependencies["optimized_kernel.py"]
+  if payload.get("eval_type") == "compilation_test":
+    return payload.get("code")
+  return None
+
+
 async def call_eval_server_async(
   session: aiohttp.ClientSession,
   eval_server_url: str,
@@ -28,7 +40,9 @@ async def call_eval_server_async(
   poll_interval: int = 10,
   client_wait_timeout: int = REQUEST_TIMEOUT,
 ) -> dict:
-  """Calls the evaluation server asynchronously and polls for status.
+  """Calls the evaluation server asynchronously and polls for status. A candidate that reaches into the
+  harness is never sent: the call returns the failed result a failed run returns, with the error text
+  "harness tampering: <what matched>".
 
   Args:
       session: aiohttp.ClientSession to use.
@@ -41,6 +55,12 @@ async def call_eval_server_async(
   Returns:
       The result from the evaluation server.
   """
+  candidate = candidate_source(payload)
+  tampering = harness_tampering(candidate) if candidate else None
+  if tampering:
+    logging.error(f"Harness tampering in the candidate, not sent: {tampering}")
+    return {"exit_code": 1, "output": "", "error": f"harness tampering: {tampering}"}
+
   # 1. Submit the task
   submit_url = f"{eval_server_url}/evaluate"
   logging.info(f"Submitting async task to {submit_url}")
