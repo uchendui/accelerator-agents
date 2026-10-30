@@ -41,6 +41,31 @@ def test_an_ordinary_pallas_kernel_passes(source):
   assert harness_tampering(source) is None
 
 
+@pytest.mark.parametrize("source", [
+  "pl.pallas_call(kernel, out_shape=s, interpret=True)(x)\n",
+  "pl.pallas_call(kernel, out_shape=s, interpret=n < 128)(x)\n",
+  "pl.pallas_call(kernel, out_shape=s, interpret=pltpu.InterpretParams())(x)\n",
+  "with pltpu.force_tpu_interpret_mode():\n    y = f(x)\n",
+  'jax.config.update("jax_pallas_interpret", True)\n',
+  "jax.config.jax_pallas_interpret = True\n",
+  # A forwarded parameter is fine, but the call that turns it on is not.
+  "def gmm(x, interpret=False):\n    return pl.pallas_call(kernel, out_shape=s, interpret=interpret)(x)\n\n"
+  "y = gmm(x, interpret=True)\n",
+])
+def test_a_candidate_that_runs_pallas_in_interpret_mode_is_flagged_as_interpret_mode(source):
+  reason = harness_tampering(source)
+  assert reason is not None and reason.startswith("interpret mode: ")
+
+
+@pytest.mark.parametrize("source", [
+  "pl.pallas_call(kernel, out_shape=s, interpret=False)(x)\n",
+  # The Megablox reference forwards a parameter whose default is False; five dataset references do.
+  "def gmm(x, *, interpret: bool = False):\n    return pl.pallas_call(kernel, out_shape=s, interpret=interpret)(x)\n",
+])
+def test_interpret_false_and_a_forwarded_false_default_pass(source):
+  assert harness_tampering(source) is None
+
+
 def test_the_evaluator_fails_a_tampering_candidate_before_the_harness_runs(tmp_path, monkeypatch):
   from types import SimpleNamespace
 
