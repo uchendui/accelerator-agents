@@ -15,15 +15,27 @@ ADK = Path(__file__).resolve().parents[1]
   "import importlib\nimportlib.import_module('base_kernel').HARNESS_TIMER = 'wallclock'\n",
   "from auto_agent.tools import test_harness\n",
   "import evaluation.harness_code\n",
+  'vars(__import__("sys").modules["__main__"])["HARNESS_" + "TIMER"] = "wallclock"\n',
+  '__import__("jax").profiler.trace = None\n',
+  "import importlib\n",
+  'globals()["HARNESS_" + "TIMER"] = "wallclock"\n',
+  'import jax\ngetattr(jax, "prof" + "iler").trace = None\n',
+  "import sys\nframe = sys._getframe(1)\n",
+  "import jax\njax.__dict__['profiler'] = None\n",
 ])
 def test_a_candidate_that_reaches_into_the_harness_is_flagged(source):
   assert harness_tampering(source) is not None
 
 
-def test_an_ordinary_pallas_kernel_passes():
-  source = (ADK / "evaluation/jaxbench_adapted_dataset/level2/8p_GEMM/reference.py").read_text(encoding="utf-8")
+@pytest.mark.parametrize("source", [
+  (ADK / "evaluation/jaxbench_adapted_dataset/level2/8p_GEMM/reference.py").read_text(encoding="utf-8"),
+  "def computation(x: int) -> int:\n    return x * 2\n",
+  # A Pallas kernel writes its output and accumulator refs, and may read a constant-named attribute.
+  "import jax\n\ndef kernel(x_ref, o_ref, acc_ref):\n    acc_ref[...] += x_ref[...]\n    o_ref[...] = acc_ref[...]\n"
+  "    cfg = {}\n    cfg['block'] = getattr(jax, 'numpy')\n",
+])
+def test_an_ordinary_pallas_kernel_passes(source):
   assert harness_tampering(source) is None
-  assert harness_tampering("def computation(x: int) -> int:\n    return x * 2\n") is None
 
 
 def test_the_evaluator_fails_a_tampering_candidate_before_the_harness_runs(tmp_path, monkeypatch):

@@ -14,18 +14,6 @@ try:
 except ImportError:
     base_mod = None
 
-# The timer is read before the candidate is imported, so the candidate cannot change it: a candidate once
-# set sys.modules["base_kernel"].HARNESS_TIMER at import and was scored on the wall clock.
-HARNESS_TIMER = getattr(base_mod, "HARNESS_TIMER", "device")
-if HARNESS_TIMER not in ("device", "wallclock"):
-    raise ValueError("base_kernel.HARNESS_TIMER must be 'device' or 'wallclock', got " + repr(HARNESS_TIMER))
-
-# Safe import for optimized kernel
-try:
-    import optimized_kernel as optimized_mod
-except ImportError:
-    optimized_mod = base_mod
-
 {input_gen_code}
 
 def benchmark(func, args, static_argnums, timer, num_iters=50, num_warmups=5):
@@ -40,8 +28,8 @@ def benchmark(func, args, static_argnums, timer, num_iters=50, num_warmups=5):
     # (the task's reference, which the agent does not write): kda's reference runs so many small
     # ops that the profiler keeps only 2 of 50 runs, with wrong durations, and one trace per run
     # takes ~42 s to collect. The wall-clock timer times each run separately and takes the median,
-    # so one host stall moves one sample, not the result. timer is the value main() read from
-    # base_kernel before the candidate was imported; benchmark never reads base_mod itself.
+    # so one host stall moves one sample, not the result. timer is the local main() read from
+    # base_kernel before it imported the candidate; benchmark never reads base_mod itself.
     import glob
     import shutil
     import statistics
@@ -107,6 +95,19 @@ def normalize_tolerance(value):
 
 def main():
     try:
+        # The reference and its timer are locals read before the candidate is imported, so the candidate
+        # cannot change them: one candidate set sys.modules["base_kernel"].HARNESS_TIMER at import, and a
+        # module global of this file could be rebound the same way through sys.modules["__main__"].
+        ref_mod = base_mod
+        timer = getattr(ref_mod, "HARNESS_TIMER", "device")
+        if timer not in ("device", "wallclock"):
+            raise ValueError("base_kernel.HARNESS_TIMER must be 'device' or 'wallclock', got " + repr(timer))
+        # Safe import for optimized kernel
+        try:
+            import optimized_kernel as optimized_mod
+        except ImportError:
+            optimized_mod = ref_mod
+
         raw_inputs = get_inputs()
         
         # Check if the input is a list of tuples or a single tuple
@@ -127,7 +128,7 @@ def main():
                 if isinstance(tolerance, list) and len(tolerance) != len(inputs_list):
                     raise ValueError(f"{{name}} list length ({{len(tolerance)}}) does not match input count ({{len(inputs_list)}})")
 
-        if not base_mod or not hasattr(base_mod, '{kernel_name}'):
+        if not ref_mod or not hasattr(ref_mod, '{kernel_name}'):
             raise RuntimeError("base_kernel.{kernel_name} not found.")
             
         if not optimized_mod or not hasattr(optimized_mod, 'computation'):
@@ -148,7 +149,7 @@ def main():
             args = tuple(dynamic_args) + tuple(static_args)
             static_argnums = tuple(range(len(dynamic_args), len(args)))
 
-            jit_base = jax.jit(getattr(base_mod, '{kernel_name}'), static_argnums=static_argnums)
+            jit_base = jax.jit(getattr(ref_mod, '{kernel_name}'), static_argnums=static_argnums)
             out_base = jax.block_until_ready(jit_base(*args))
             out_base_cpu = jax.device_get(out_base)
             del out_base
@@ -209,8 +210,8 @@ def main():
                 all_correct = False
                 continue
 
-            time_base = benchmark(getattr(base_mod, '{kernel_name}'), args, static_argnums, HARNESS_TIMER)
-            time_optimized = benchmark(getattr(optimized_mod, 'computation'), args, static_argnums, HARNESS_TIMER)
+            time_base = benchmark(getattr(ref_mod, '{kernel_name}'), args, static_argnums, timer)
+            time_optimized = benchmark(getattr(optimized_mod, 'computation'), args, static_argnums, timer)
             
             times_base.append(time_base)
             times_optimized.append(time_optimized)
