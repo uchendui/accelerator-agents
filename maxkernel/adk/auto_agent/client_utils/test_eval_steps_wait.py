@@ -75,3 +75,12 @@ def test_the_autotune_sweep_waits_out_an_unavailable_eval_server(monkeypatch):
   result = asyncio.run(autotune_tool.autotune_kernel("k", "code {bm}", {"bm": [8]}, backend="tpu"))
   assert sleeps == [10, 20]
   assert (result["status"], result["best_config"]) == ("success", {"bm": 8})
+
+
+def test_the_sweep_candidate_is_the_template_with_the_first_value_of_each_parameter():
+  from evaluation.candidate_check import harness_tampering
+
+  assert autotune_tool.sweep_candidate("x = {BLOCK}\ny = {N}\n", {"BLOCK": [128, 256], "N": [1]}) == "x = 128\ny = 1\n"
+  # Tampering written into the template, not into optimized_kernel.py, is what the check must see.
+  template = 'import sys\nsys.modules["base_kernel"].HARNESS_TIMER = "{TIMER}"\n'
+  assert harness_tampering(autotune_tool.sweep_candidate(template, {"TIMER": ["wallclock"]})) is not None

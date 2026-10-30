@@ -13,7 +13,7 @@ from auto_agent.callbacks import prune_intermediate_tool_history
 from auto_agent.config import get_thinking_planner, model_config
 from auto_agent.constants import MODEL_NAME
 from auto_agent.custom_types import CustomLlmAgent
-from auto_agent.subagents.autotuning.autotune_tool import autotune_kernel
+from auto_agent.subagents.autotuning.autotune_tool import autotune_kernel, sweep_candidate
 from auto_agent.subagents.autotuning.prompts import (
   autotune_prompt,
   summary_prompt,
@@ -130,12 +130,11 @@ class AutotuneRunner(BaseAgent):
           f"[{self.name}] Failed to read base kernel file {base_kernel_path}: {e}"
         )
 
-    # The candidate goes along as optimized_kernel.py, where call_eval_server_async checks it for harness
-    # tampering. The sweep script never imports that file: sys.modules holds the module before the harness runs.
-    optimized_kernel_path = ctx.session.state.get("optimized_kernel_path", "")
-    if optimized_kernel_path and os.path.exists(optimized_kernel_path):
-      with open(optimized_kernel_path, "r") as f:
-        dependencies["optimized_kernel.py"] = f.read()
+    # The candidate the sweep runs goes along as optimized_kernel.py, where call_eval_server_async checks it
+    # for harness tampering: the planner wrote the template, and its best configuration becomes the node's
+    # kernel without another test. The sweep script never imports that file: sys.modules holds the module
+    # before the harness runs.
+    dependencies["optimized_kernel.py"] = sweep_candidate(code_template, search_space)
 
     # Read the pre-generated test file (which is the rigorous harness)
     test_file_path = ctx.session.state.get("test_file_path", "")

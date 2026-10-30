@@ -9,6 +9,17 @@ import aiohttp
 from auto_agent.client_utils.eval_client import call_eval_server_until_available
 from auto_agent.constants import EVAL_SERVER_PORT, REQUEST_TIMEOUT
 
+
+def sweep_candidate(code_template: str, search_space: dict) -> str:
+  """The code the sweep runs for its first configuration: the template with each {name} replaced by the first
+  value of its search space, as the TPU server instantiates a configuration. The tampering check reads this,
+  because the best configuration of the same template becomes the node's kernel without another test."""
+  code = code_template
+  for name, values in search_space.items():
+    if values:
+      code = code.replace(f"{{{name}}}", str(values[0]))
+  return code
+
 AUTOTUNE_INDIVIDUAL_TIMEOUT = 300
 # Normal autotune runs take 35-443 s, so 900 s leaves room for a slow search
 # and ends a job whose TPU server never answers.
